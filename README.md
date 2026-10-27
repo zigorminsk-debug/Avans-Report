@@ -155,8 +155,8 @@ python desktop/launcher.py --host 0.0.0.0 --port 8770 --no-browser
 ### Как выпустить новую версию
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 Тег запускает `.github/workflows/release.yml`, который:
@@ -165,9 +165,16 @@ git push origin v1.0.1
 2. подставляет версию в `app/version.py`;
 3. собирает Windows-приложение (PyInstaller) и установщик (Inno Setup);
 4. собирает архив для Linux;
-5. публикует релиз с файлами и контрольными суммами `SHA256SUMS.txt`.
+5. **запускает собранную программу** и проверяет, что она отдаёт интерфейс
+   и формирует бланк Excel (смоук-тест готовой сборки);
+6. публикует релиз с файлами и контрольными суммами `SHA256SUMS.txt`.
 
-Можно запустить и вручную: *Actions → Release → Run workflow* с указанием версии.
+Можно запустить и вручную: *Actions → Release → Run workflow* с указанием версии
+(кнопка доступна, когда workflow есть в ветке `main`).
+
+Актуальные сборки: [Releases](https://github.com/zigorminsk-debug/Avans-Report/releases).
+Версия в `app/version.py` носит справочный характер — при сборке она
+подставляется из тега.
 
 ---
 
