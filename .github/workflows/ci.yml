@@ -33,7 +33,19 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Тесты
-        run: python -m pytest -q
+        id: pytest
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q 2>&1 | tee pytest.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            # Краткий отчёт о провале попадает в аннотацию — видно прямо в интерфейсе GitHub
+            summary=$(grep -E "^(FAILED|ERROR)" pytest.log | head -20 | tr '\n' ';')
+            [ -z "$summary" ] && summary=$(tail -c 1200 pytest.log | tr '\n' ' ')
+            echo "::error title=Тесты не пройдены::${summary:0:3500}"
+          fi
+          exit "$code"
 
       - name: Проверка запуска сервера
         run: |
