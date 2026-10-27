@@ -204,6 +204,9 @@ def run(argv=None) -> int:
         description=f"{config.APP_NAME} — заполнение, сохранение в PDF и печать без входа",
     )
     parser.add_argument("--port", type=int, default=None, help="порт (по умолчанию 8780)")
+    parser.add_argument("--host", default=None,
+                        help="адрес прослушивания (по умолчанию 127.0.0.1; "
+                             "0.0.0.0 — доступ с других компьютеров сети)")
     parser.add_argument("--data-dir", default=None, help="каталог для отчётов и настроек")
     parser.add_argument("--no-browser", action="store_true", help="не открывать браузер")
     parser.add_argument("--open-data-dir", action="store_true", help="открыть папку с отчётами")
@@ -292,7 +295,7 @@ def run(argv=None) -> int:
     application = create_app()
     uvicorn_config = uvicorn.Config(
         application,
-        host=cfg.get("host") or "127.0.0.1",
+        host=args.host or cfg.get("host") or "127.0.0.1",
         port=port,
         log_level="info",
         access_log=False,

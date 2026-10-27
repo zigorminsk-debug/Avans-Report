@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -40,6 +41,16 @@ def _safe_session(value: Optional[str]) -> str:
     if len(safe) >= 8:
         return safe
     return config.new_session_id()
+
+
+def _instance_port() -> Optional[int]:
+    """Порт запущенного сервера — для запросов через прокси без порта в Host."""
+    try:
+        payload = json.loads(config.instance_path().read_text(encoding="utf-8"))
+        port = payload.get("port")
+        return int(port) if port else None
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def _disposition(kind: str, filename: str, fallback: str) -> str:
@@ -96,7 +107,7 @@ def create_app() -> FastAPI:
             "app": config.APP_NAME,
             "version": __version__,
             "mode": "standalone",
-            "port": request.url.port,
+            "port": request.url.port or _instance_port(),
             "data_dir": str(config.data_dir()),
         }
 

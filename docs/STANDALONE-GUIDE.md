@@ -34,6 +34,18 @@
 ./AvansStandalone/AvansStandalone
 ```
 
+### Запуск из исходного кода
+
+```bash
+pip install -r requirements.txt
+python -m standalone.launcher                  # откроется браузер
+python -m standalone.launcher --host 0.0.0.0   # доступ с других компьютеров сети
+python -m standalone.launcher --help           # все параметры
+```
+
+Если нужно, чтобы форму открывали с телефона или другого компьютера в той же
+сети, запустите с `--host 0.0.0.0` и откройте `http://<IP-компьютера>:8780/`.
+
 ## Как заполнить отчёт
 
 1. Запустите программу. Откроется браузер с формой отчёта.
