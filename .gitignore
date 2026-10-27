@@ -5,11 +5,10 @@ __pycache__/
 .venv/
 venv/
 
-# Build artefacts
+# Build artefacts (спецификация сборки в desktop/ хранится в репозитории)
 build/
 dist/
-*.spec
-!installer/**/*.spec
+/*.spec
 
 # Local data / runtime files
 .data/
