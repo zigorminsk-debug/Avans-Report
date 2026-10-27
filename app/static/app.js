@@ -1737,6 +1737,8 @@
   async function openEmailModal(reportId) {
     const report = await api('/api/reports/' + reportId);
     const defaultRecipient = (state.settings && state.settings.default_recipient) || '';
+    const smtp = (state.settings && state.settings.smtp) || {};
+    const smtpReady = !!smtp.host;
     const modal = openModal({
       title: 'Отправить отчёт по почте',
       body: `
@@ -1760,10 +1762,15 @@
         <div class="notice warn" id="email-warning"
              style="${defaultRecipient ? 'display:none' : ''}">
           Получатель не задан в настройках — укажите адрес вручную.
+        </div>
+        <div class="notice error"${smtpReady ? ' style="display:none"' : ''}>
+          Почтовый сервер (SMTP) не настроен. Отправка станет доступна после
+          настройки в разделе «Настройки» — обратитесь к администратору.
         </div>`,
       actions: `
         <button class="btn" data-act="cancel">Отмена</button>
-        <button class="btn btn-primary" data-act="send">${icon('mail', 16)} Отправить</button>`,
+        <button class="btn btn-primary" data-act="send" ${smtpReady ? '' : 'disabled'}>
+          ${icon('mail', 16)} Отправить</button>`,
     });
 
     const send = async (button) => {
