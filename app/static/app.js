@@ -1063,7 +1063,6 @@
         </div>
         <div class="doc-title">Отчет об израсходованных суммах</div>
         <div class="doc-datebar">
-          <span class="doc-no">№ ${esc(report.number)}</span>
           <span class="doc-date">от <span class="q">«</span>${parseIsoDate(report.report_date) ? parseIsoDate(report.report_date).day : ''}<span class="q">»</span>
             ${parseIsoDate(report.report_date) ? MONTHS[parseIsoDate(report.report_date).month - 1] : ''}
             ${parseIsoDate(report.report_date) ? parseIsoDate(report.report_date).year : ''} г.</span>
@@ -1090,7 +1089,7 @@
         ${signaturesHtml(report)}
 
         <div class="doc-foot">
-          Отчёт № ${esc(report.number)} · сформирован ${fmtDateTime(report.created_at)}
+          Сформирован ${fmtDateTime(report.created_at)}
         </div>
       </div>`;
   }
@@ -1438,7 +1437,6 @@
       </div>
       <div class="doc-title">Отчет об израсходованных суммах</div>
       <div class="doc-datebar">
-        <span class="doc-no">Новый отчёт</span>
         <span class="doc-date">от <span class="q">«</span><span data-date-day></span><span class="q">»</span>
           <span data-date-month></span> <span data-date-year></span> г.</span>
       </div>

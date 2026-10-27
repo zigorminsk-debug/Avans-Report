@@ -130,7 +130,7 @@ def _styles(scale: float = 1.0) -> Dict[str, ParagraphStyle]:
         "th": ParagraphStyle("th", parent=base, fontName=FONT_BOLD, fontSize=size(8.2),
                              leading=size(9.6), alignment=TA_CENTER),
         "date_line": ParagraphStyle("date_line", parent=base, fontSize=size(10.5),
-                                    leading=size(13), alignment=TA_RIGHT),
+                                    leading=size(13), alignment=TA_CENTER),
     }
 
 
@@ -436,19 +436,9 @@ def _render_report(report: Dict[str, Any], scale: float = 1.0) -> "tuple[bytes, 
     else:
         date_line = ""
 
-    number_and_date = Table(
-        [[
-            _paragraph(f"№ {report.get('number', '')}", styles["label"]),
-            _paragraph(date_line, styles["date_line"]),
-        ]],
-        colWidths=[width * 0.35, width * 0.65],
-    )
-    number_and_date.setStyle(TableStyle([
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
+    # В шапке бланка (как в форме Excel) номер отчёта не печатается:
+    # только дата, по центру под заголовком.
+    date_row = _paragraph(date_line, styles["date_line"])
 
     signature_rows = [
         _signature_row(styles, "Подотчетное лицо", report.get("person_name", ""), width),
@@ -494,7 +484,7 @@ def _render_report(report: Dict[str, Any], scale: float = 1.0) -> "tuple[bytes, 
         header,
         gap(6),
         _paragraph("Отчет об израсходованных суммах", styles["title"]),
-        number_and_date,
+        date_row,
         gap(5),
         _field_row(styles, "Подотчетное лицо", report.get("person_name", ""), width,
                    "(фамилия, инициалы)"),
@@ -510,10 +500,7 @@ def _render_report(report: Dict[str, Any], scale: float = 1.0) -> "tuple[bytes, 
         gap(10),
         *signature_rows,
         gap(10),
-        _paragraph(
-            f"Отчёт № {report.get('number', '')} · сформирован {created_text}",
-            styles["tiny"],
-        ),
+        _paragraph(f"Сформирован {created_text}", styles["tiny"]),
     ]
 
     doc.build(story)

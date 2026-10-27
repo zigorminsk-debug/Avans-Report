@@ -120,10 +120,15 @@ def test_pdf_contains_report_text(client):
     import io
 
     number = client.post("/api/reports", headers=SESSION_A, json=payload()).json()["number"]
-    content = client.get(f"/api/reports/{number}/pdf", headers=SESSION_A).content
+    response = client.get(f"/api/reports/{number}/pdf", headers=SESSION_A)
+    content = response.content
     text = pypdf.PdfReader(io.BytesIO(content)).pages[0].extract_text()
     assert "Отчет об израсходованных средствах" in text or "Отчет об израсходованных суммах" in text
-    assert number in text
+    # Номер в бланке не печатается (как в форме Excel) — он остаётся только в имени файла.
+    assert number not in text
+    from urllib.parse import unquote
+
+    assert number in unquote(response.headers["content-disposition"])
     assert "Кухаренко Юлия Владимировна" in text
     assert "28,45" in text
     assert "63,45" in text
@@ -365,6 +370,22 @@ def test_ui_posts_when_request_has_body():
     assert js.count("api('/api/prepare'") == js.count("api('/api/prepare', { method: 'POST'")
     for call in js.split("api('/api/prepare'")[1:]:
         assert call.lstrip().startswith(", { method: 'POST'"), call[:80]
+
+
+def test_printed_form_has_no_report_number():
+    """В шапке бланка номера нет, дата по центру — как в форме Excel."""
+    for path in ("standalone/static/app.js", "app/static/app.js"):
+        js = (ROOT / path).read_text(encoding="utf-8")
+        assert "doc-no" not in js, path
+        assert "Сформирован " in js, path
+
+    css = (ROOT / "app" / "static" / "styles.css").read_text(encoding="utf-8")
+    datebar = [line for line in css.splitlines() if line.startswith(".doc-datebar {")][0]
+    assert "justify-content: center" in datebar
+
+    pdf = (ROOT / "app" / "pdf_export.py").read_text(encoding="utf-8")
+    assert 'f"№ {report.get(' not in pdf          # номер не в шапке
+    assert 'f"Отчёт № {report.get(' not in pdf    # и не в подписи бланка
 
 
 def test_ui_can_print_without_saving():

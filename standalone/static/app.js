@@ -772,7 +772,6 @@
         </div>
         <div class="doc-title">Отчет об израсходованных суммах</div>
         <div class="doc-datebar">
-          <span class="doc-no">№ ${esc(report.number || '')}</span>
           <span class="doc-date">от <span class="q">«</span>${d ? d.day : ''}<span class="q">»</span>
             ${d ? MONTHS[d.month - 1] : ''} ${d ? d.year : ''} г.</span>
         </div>
@@ -794,7 +793,7 @@
         ${amountsTable(report)}
         ${expensesTable(report)}
         ${signatureBlock(report)}
-        <div class="doc-foot">Отчёт № ${esc(report.number || '')} · сформирован ${esc(created)}</div>
+        <div class="doc-foot">Сформирован ${esc(created)}</div>
       </div>`;
   }
 
@@ -1114,7 +1113,6 @@
       </div>
       <div class="doc-title">Отчет об израсходованных суммах</div>
       <div class="doc-datebar">
-        <span class="doc-no">номер присваивается при сохранении</span>
         <span class="doc-date">от <span class="q">«</span><span data-date-day></span><span class="q">»</span>
           <span data-date-month></span> <span data-date-year></span> г.</span>
       </div>

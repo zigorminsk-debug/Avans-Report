@@ -295,9 +295,9 @@ table.data td.actions .btn { margin-left: 4px; }
 .doc-hints .spacer { display: block; }
 
 .doc-title { text-align: center; font-size: 15pt; font-weight: 700; margin: 7mm 0 2mm; }
-.doc-datebar { display: flex; justify-content: space-between; align-items: baseline; gap: 6mm; font-size: 11pt; margin-bottom: 4mm; }
+.doc-datebar { display: flex; justify-content: center; align-items: baseline; gap: 6mm; font-size: 11pt; margin-bottom: 4mm; }
 .doc-datebar .doc-no { font-size: 9pt; color: #333; }
-.doc-datebar .doc-date { margin-left: auto; }
+.doc-datebar .doc-date { margin: 0 auto; }
 .doc-datebar .q { padding: 0 .6mm; }
 
 .doc-fields { margin: 1mm 0 4mm; }
