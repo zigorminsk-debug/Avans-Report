@@ -1,0 +1,490 @@
+name: Release (сборка установщика)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Версия релиза (например 1.0.1). Пусто — взять из тега.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  test:
+    name: Тесты перед сборкой
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  version:
+    name: Определение версии
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      tag: ${{ steps.detect.outputs.tag }}
+    steps:
+      - id: detect
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="1.0.$(date +%Y%m%d%H%M)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Собираем версию $VERSION"
+
+  windows:
+    name: Windows — установщик
+    needs: [test, version]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Подставить версию в код
+        shell: pwsh
+        run: |
+          $version = "${{ needs.version.outputs.version }}"
+          $path = "app/version.py"
+          $content = Get-Content $path -Raw -Encoding UTF8
+          $content = $content -replace '__version__ = "[^"]+"', "__version__ = `"$version`""
+          [System.IO.File]::WriteAllText((Resolve-Path $path), $content, (New-Object System.Text.UTF8Encoding $false))
+          Get-Content $path | Select-String '__version__'
+
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Сборка приложения (PyInstaller)
+        run: pyinstaller --noconfirm --clean desktop/AvansReport.spec
+
+      - name: Установка Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup не найден" }
+
+      - name: Сборка установщика
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe не найден" }
+          Write-Host "Inno Setup: $((Get-Item $iscc).VersionInfo.FileVersion)"
+          Write-Host "ISPP: $(Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISPP.dll')"
+          $output = & $iscc "installer\windows\AvansReport.iss" 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) {
+            $short = ($output -split "`n" | Where-Object { $_ -match 'Error|error|Ошибка' } | Select-Object -First 5) -join '; '
+            if (-not $short) { $short = $output.Substring([Math]::Max(0, $output.Length - 1500)) }
+            Write-Host "::error title=Сборка установщика не удалась::$($short -replace "`n", ' ')"
+            exit $LASTEXITCODE
+          }
+          Get-ChildItem "dist\installer" | Format-Table Name, Length
+
+      - name: Проверка сборки
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\AvansReport\AvansReport.exe")) { throw "AvansReport.exe не собран" }
+          $static = Get-ChildItem -Recurse "dist\AvansReport" -Filter "index.html" |
+                    Where-Object { $_.FullName -like "*app\static*" }
+          if (-not $static) { throw "В сборку не попал интерфейс (app/static/index.html)" }
+          $template = Get-ChildItem -Recurse "dist\AvansReport" -Filter "template.xlsm"
+          if (-not $template) { throw "В сборку не попал шаблон бланка (template.xlsm)" }
+          Write-Host "Интерфейс: $($static.FullName)"
+          Write-Host "Шаблон:   $($template.FullName)"
+          Get-Item "dist\AvansReport\AvansReport.exe" | Format-List Name, Length
+
+      - name: Портативная сборка
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\AvansReport\*" -DestinationPath "dist\AvansReport-Portable-${{ needs.version.outputs.version }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            dist/installer/*.exe
+            dist/AvansReport-Portable-*.zip
+          if-no-files-found: error
+
+  linux:
+    name: Linux — серверная сборка
+    needs: [test, version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Подставить версию в код
+        run: |
+          sed -i "s/^__version__ = .*/__version__ = \"${{ needs.version.outputs.version }}\"/" app/version.py
+          grep '^__version__' app/version.py
+
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Сборка
+        run: pyinstaller --noconfirm --clean desktop/AvansReport.spec
+
+      - name: Проверка запуска собранной программы
+        shell: bash
+        run: |
+          set -e
+          export AVANS_DATA_DIR="$RUNNER_TEMP/avansdata"
+          ./dist/AvansReport/AvansReport --host 127.0.0.1 --port 8799 --no-browser &
+          APP_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8799/api/health > /dev/null; then break; fi
+            sleep 0.5
+          done
+          echo "--- health ---"
+          curl -sf http://127.0.0.1:8799/api/health
+          echo
+          echo "--- интерфейс ---"
+          curl -sf http://127.0.0.1:8799/ | grep -q "Авансовые отчёты" && echo "HTML отдан"
+          curl -sf http://127.0.0.1:8799/static/app.js > /dev/null && echo "app.js отдан"
+          curl -sf http://127.0.0.1:8799/static/styles.css > /dev/null && echo "styles.css отдан"
+          curl -sf http://127.0.0.1:8799/api/public/info
+          echo
+          # Проверяем, что шаблон бланка доступен в сборке
+          python3 - <<'EOF'
+          import urllib.request, json
+          base = "http://127.0.0.1:8799"
+          def call(path, method="GET", body=None, token=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method)
+              if data: req.add_header("Content-Type", "application/json")
+              if token: req.add_header("Authorization", "Bearer " + token)
+              with urllib.request.urlopen(req) as r: return json.loads(r.read().decode() or "{}")
+          admin = call("/api/setup", "POST", {"username": "admin", "password": "Admin12345",
+                      "full_name": "CI Проверка", "org_name": "CI"})
+          token = admin["token"]
+          report = call("/api/reports", "POST", {
+              "report_date": "2026-10-26",
+              "person_name": "Проверка Сборки Ивановна",
+              "person_position": "тест",
+              "purpose": "Командировочные расходы",
+              "advances": [{"date": "2026-10-19", "amount": "100.00"}],
+              "expenses": [{"date": "20.10.2026", "document": "Чек",
+                            "document_number": "1", "purpose": "тест", "amount": "99,99"}],
+          }, token)
+          print("Отчёт создан:", report["number"], report["amount_words"])
+          req = urllib.request.Request(base + f"/api/reports/{report['id']}/excel", headers={"Authorization": "Bearer " + token})
+          with urllib.request.urlopen(req) as r:
+              content = r.read()
+          assert content[:2] == b"PK", "Excel не сформирован"
+          print("Excel-бланк сформирован:", len(content), "байт")
+          EOF
+          kill $APP_PID || true
+
+      - name: Архив
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          tar -tzf dist/AvansReport-Linux-x86_64-*.tar.gz 2>/dev/null | head -5 || true
+          mkdir -p dist/release
+          cp -r dist/AvansReport dist/release/AvansReport
+          cp README.md dist/release/
+          tar -C dist/release -czf "dist/AvansReport-Linux-x86_64-${VERSION}.tar.gz" AvansReport README.md
+          sha256sum dist/*.tar.gz > dist/AvansReport-Linux-x86_64-${VERSION}.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            dist/AvansReport-Linux-x86_64-*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  windows-standalone:
+    name: Windows — автономная сборка
+    needs: [test, version]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Подставить версию в код
+        shell: pwsh
+        run: |
+          $version = "${{ needs.version.outputs.version }}"
+          $path = "app/version.py"
+          $content = Get-Content $path -Raw -Encoding UTF8
+          $content = $content -replace '__version__ = "[^"]+"', "__version__ = `"$version`""
+          [System.IO.File]::WriteAllText((Resolve-Path $path), $content, (New-Object System.Text.UTF8Encoding $false))
+          Get-Content $path | Select-String '__version__'
+
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Сборка автономного приложения (PyInstaller)
+        run: pyinstaller --noconfirm --clean desktop/AvansStandalone.spec
+
+      - name: Проверка сборки
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\AvansStandalone\AvansStandalone.exe")) { throw "AvansStandalone.exe не собран" }
+          $static = Get-ChildItem -Recurse "dist\AvansStandalone" -Filter "app.js" |
+                    Where-Object { $_.FullName -like "*standalone\static*" }
+          if (-not $static) { throw "В сборку не попал интерфейс (standalone/static/app.js)" }
+          $fonts = Get-ChildItem -Recurse "dist\AvansStandalone" -Filter "*.ttf"
+          if (-not $fonts) { throw "В сборку не попали шрифты PDF (app/assets/fonts)" }
+          Write-Host "Интерфейс: $($static.FullName)"
+          Get-Item "dist\AvansStandalone\AvansStandalone.exe" | Format-List Name, Length
+
+      - name: Портативная сборка
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\AvansStandalone\*" -DestinationPath "dist\AvansStandalone-Portable-${{ needs.version.outputs.version }}.zip"
+
+      - name: Установка Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup не найден" }
+
+      - name: Сборка установщика
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          $output = & $iscc "installer\windows\AvansStandalone.iss" 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) {
+            $short = ($output -split "`n" | Where-Object { $_ -match 'Error|error|Ошибка' } | Select-Object -First 5) -join '; '
+            if (-not $short) { $short = $output.Substring([Math]::Max(0, $output.Length - 1500)) }
+            Write-Host "::error title=Сборка установщика (автономный) не удалась::$($short -replace "`n", ' ')"
+            exit $LASTEXITCODE
+          }
+          Get-ChildItem "dist\installer" | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-standalone
+          path: |
+            dist/installer/AvansStandalone-Setup-*.exe
+            dist/AvansStandalone-Portable-*.zip
+          if-no-files-found: error
+
+  linux-standalone:
+    name: Linux — автономная сборка
+    needs: [test, version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Подставить версию в код
+        run: |
+          sed -i "s/^__version__ = .*/__version__ = \"${{ needs.version.outputs.version }}\"/" app/version.py
+          grep '^__version__' app/version.py
+
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Сборка
+        run: pyinstaller --noconfirm --clean desktop/AvansStandalone.spec
+
+      - name: Проверка запуска собранной программы
+        shell: bash
+        run: |
+          set -e
+          rm -rf "$RUNNER_TEMP/standalone-data"
+          AVANS_STANDALONE_DATA_DIR="$RUNNER_TEMP/standalone-data" \
+            ./dist/AvansStandalone/AvansStandalone --port 8794 --no-browser > "$RUNNER_TEMP/standalone.log" 2>&1 &
+          APP_PID=$!
+          ok=0
+          for i in $(seq 1 80); do
+            if curl -sf http://127.0.0.1:8794/api/health > /dev/null; then ok=1; break; fi
+            if ! kill -0 "$APP_PID" 2>/dev/null; then break; fi
+            sleep 0.5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error title=Собранная автономная программа не запустилась::$(tail -c 2500 "$RUNNER_TEMP/standalone.log" | tr '\n' ' ')"
+            tail -60 "$RUNNER_TEMP/standalone.log"
+            exit 1
+          fi
+          echo "--- health ---"
+          curl -sf http://127.0.0.1:8794/api/health
+          echo
+          echo "--- интерфейс ---"
+          curl -sf http://127.0.0.1:8794/ | grep -q "автономный режим" && echo "HTML отдан"
+          curl -sf http://127.0.0.1:8794/static/app.js > /dev/null && echo "app.js отдан"
+          curl -sf http://127.0.0.1:8794/shared/styles.css > /dev/null && echo "styles.css отдан"
+          echo
+          python3 - <<'EOF'
+          import json, urllib.request
+
+          base = "http://127.0.0.1:8794"
+
+          def call(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method)
+              req.add_header("Content-Type", "application/json")
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return r.read()
+
+          payload = {
+              "report_date": "2026-10-26",
+              "person_name": "Проверка Сборки Автономная",
+              "person_position": "инженер",
+              "purpose": "Командировочные расходы",
+              "advances": [{"date": "2026-10-19", "amount": "1000.00"}],
+              "expenses": [{"date": "20.10.2026", "document": "Чек",
+                            "document_number": "1", "purpose": "Проезд", "amount": "950,00"}],
+          }
+          prepared = json.loads(call("/api/prepare", "POST", {"payload": payload}))
+          pdf = call("/api/pdf", "POST", prepared["report"])
+          assert pdf[:4] == b"%PDF", "PDF не сформирован"
+          print("PDF без сохранения:", prepared["number"], len(pdf), "байт")
+          saved = json.loads(call("/api/reports", "POST", payload))
+          print("Сохранён отчёт:", saved["number"], saved["files"]["pdf_name"])
+          EOF
+          sleep 1
+          test -f "$RUNNER_TEMP/standalone-data/reports/"*"/АО-"*.pdf && echo "PDF лежит в каталоге отчётов"
+          kill $APP_PID || true
+          wait $APP_PID || true
+
+      - name: Архив
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          mkdir -p dist/release
+          cp -r dist/AvansStandalone dist/release/AvansStandalone
+          cp docs/STANDALONE-GUIDE.md dist/release/AvansStandalone/README.md
+          tar -C dist/release -czf "dist/AvansStandalone-Linux-x86_64-${VERSION}.tar.gz" AvansStandalone
+          sha256sum dist/AvansStandalone-Linux-x86_64-${VERSION}.tar.gz > "dist/AvansStandalone-Linux-x86_64-${VERSION}.tar.gz.sha256"
+          ls -l dist/*.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-standalone
+          path: |
+            dist/AvansStandalone-Linux-x86_64-*.tar.gz
+            dist/AvansStandalone-Linux-x86_64-*.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Публикация релиза
+    needs: [windows, linux, windows-standalone, linux-standalone, version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Список файлов релиза
+        run: find artifacts -type f | sort
+
+      - name: Контрольные суммы
+        run: |
+          cd artifacts
+          find . -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.tar.gz' \) -print0 \
+            | xargs -0 sha256sum > SHA256SUMS.txt || true
+          cat SHA256SUMS.txt
+
+      - name: Заметки к релизу
+        run: |
+          cat > notes.md <<'EOF'
+          ## Авансовые отчёты ${{ needs.version.outputs.version }}
+
+          Два варианта программы из одной формы: **серверный** (для организации)
+          и **автономный** (для одного рабочего места, без входа в систему).
+
+          ### Серверная версия
+          - `AvansReport-Setup-${{ needs.version.outputs.version }}.exe` — установщик для Windows.
+          - `AvansReport-Portable-${{ needs.version.outputs.version }}.zip` — портативная сборка.
+          - `AvansReport-Linux-x86_64-${{ needs.version.outputs.version }}.tar.gz` — сборка для Linux.
+
+          1. Запустите программу ярлыком «Авансовые отчёты» — откроется браузер
+             с предложением создать администратора.
+          2. Настройте организацию, подписи и SMTP-сервер в разделе «Настройки».
+
+          ### Автономная версия (без логина и пароля)
+          - `AvansStandalone-Setup-${{ needs.version.outputs.version }}.exe` — установщик для Windows
+            (ставится без прав администратора).
+          - `AvansStandalone-Portable-${{ needs.version.outputs.version }}.zip` — портативная сборка.
+          - `AvansStandalone-Linux-x86_64-${{ needs.version.outputs.version }}.tar.gz` — сборка для Linux.
+
+          Запустил → заполнил → сохранил PDF или распечатал. Учётные записи не нужны,
+          отчёты нумеруются автоматически (АО-ГГГГ-NNNN) и хранятся в
+          `%LOCALAPPDATA%\AvansReportStandalone`. Можно открыть несколько окон
+          одновременно — номера не повторяются.
+
+          ### Обновление
+          Обновления проверяются кнопкой «Проверить обновления» в программе.
+          **Данные при обновлении сохраняются**: серверная версия хранит базу в `%APPDATA%\AvansReport`,
+          автономная — отчёты в `%LOCALAPPDATA%\AvansReportStandalone`.
+
+          ### Проверка файлов
+          Контрольные суммы — в `SHA256SUMS.txt`.
+
+          Полное описание: [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)
+          EOF
+
+      - name: Создать релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          body_path: notes.md
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+            artifacts/SHA256SUMS.txt

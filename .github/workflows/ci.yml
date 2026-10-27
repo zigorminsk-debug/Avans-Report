@@ -1,0 +1,202 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Тесты (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Установка зависимостей
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Тесты
+        id: pytest
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q 2>&1 | tee pytest.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            # Краткий отчёт о провале попадает в аннотацию — видно прямо в интерфейсе GitHub
+            summary=$(grep -E "^(FAILED|ERROR)" pytest.log | head -20 | tr '\n' ';')
+            [ -z "$summary" ] && summary=$(tail -c 1200 pytest.log | tr '\n' ' ')
+            echo "::error title=Тесты не пройдены::${summary:0:3500}"
+          fi
+          exit "$code"
+
+      - name: Проверка запуска сервера
+        run: |
+          export AVANS_DATA_DIR="$RUNNER_TEMP/data"
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8771 &
+          SERVER_PID=$!
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8771/api/health > /dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8771/api/health
+          curl -sf http://127.0.0.1:8771/ | grep -q "Авансовые отчёты"
+          kill $SERVER_PID
+
+      - name: Проверка автономной версии
+        run: |
+          set -e
+          export AVANS_STANDALONE_DATA_DIR="$RUNNER_TEMP/standalone"
+          python -m standalone.launcher --port 8791 --no-browser --print-url > "$RUNNER_TEMP/standalone.log" 2>&1 &
+          LAUNCH_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8791/api/health > /dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8791/api/info
+          echo
+          curl -sf http://127.0.0.1:8791/ | grep -q "автономный режим"
+          python - <<'EOF'
+          import json, urllib.request
+          base = "http://127.0.0.1:8791"
+          def call(path, method="GET", body=None, sid="ci-session"):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method)
+              req.add_header("Content-Type", "application/json")
+              req.add_header("X-Session-Id", sid)
+              with urllib.request.urlopen(req) as r:
+                  return r.headers.get("content-type", ""), r.read()
+          payload = {
+              "report_date": "2026-10-26",
+              "person_name": "Проверка Автономная Ивановна",
+              "person_position": "инженер",
+              "purpose": "Командировочные расходы",
+              "advances": [{"date": "2026-10-19", "amount": "1000.00"}],
+              "expenses": [{"date": "20.10.2026", "document": "Чек",
+                            "document_number": "1", "purpose": "Проезд", "amount": "950,00"}],
+          }
+          _, prepared = call("/api/prepare", "POST", {"payload": payload})
+          prepared = json.loads(prepared)
+          print("Подготовлен отчёт:", prepared["number"])
+          _, content = call("/api/pdf", "POST", prepared["report"])
+          assert content[:4] == b"%PDF", "PDF не сформирован"
+          print("PDF:", len(content), "байт")
+          _, saved = call("/api/reports", "POST", payload)
+          saved = json.loads(saved)
+          print("Сохранён:", saved["number"], saved["files"]["pdf_name"])
+          EOF
+          kill $LAUNCH_PID || true
+          wait $LAUNCH_PID || true
+          cat "$RUNNER_TEMP/standalone.log"
+
+  frontend:
+    name: Проверка интерфейса
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Синтаксис JavaScript
+        run: |
+          node --check app/static/app.js
+          node --check standalone/static/app.js
+      - name: Обязательные файлы интерфейса
+        run: |
+          test -f app/static/index.html
+          test -f app/static/styles.css
+          test -f app/static/app.js
+          test -f app/assets/template.xlsm
+          test -f standalone/static/index.html
+          test -f standalone/static/app.js
+          test -f standalone/static/extra.css
+          test -f desktop/AvansStandalone.spec
+          test -f installer/windows/AvansStandalone.iss
+
+  standalone-build:
+    name: Автономная сборка (PyInstaller)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Сборка
+        run: pyinstaller --noconfirm --clean desktop/AvansStandalone.spec
+
+      - name: Запуск собранной программы
+        shell: bash
+        run: |
+          export AVANS_STANDALONE_DATA_DIR="$RUNNER_TEMP/data"
+          rm -rf "$AVANS_STANDALONE_DATA_DIR"
+          ./dist/AvansStandalone/AvansStandalone --port 8794 --no-browser > "$RUNNER_TEMP/app.log" 2>&1 &
+          APP_PID=$!
+          ok=0
+          for i in $(seq 1 80); do
+            if curl -sf http://127.0.0.1:8794/api/health > /dev/null; then ok=1; break; fi
+            if ! kill -0 "$APP_PID" 2>/dev/null; then break; fi
+            sleep 0.5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error title=Собранная автономная программа не запустилась::$(tail -c 2500 "$RUNNER_TEMP/app.log" | tr '\n' ' ')"
+            echo "--- журнал программы ---"
+            tail -60 "$RUNNER_TEMP/app.log"
+            exit 1
+          fi
+          echo "--- health ---"
+          curl -sf http://127.0.0.1:8794/api/health
+          echo
+          python - <<'EOF'
+          import json, urllib.request
+
+          base = "http://127.0.0.1:8794"
+
+          def call(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method)
+              req.add_header("Content-Type", "application/json")
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return response.read()
+
+          payload = {
+              "report_date": "2026-10-26",
+              "person_name": "Проверка Сборки Автономная",
+              "purpose": "Командировочные расходы",
+              "advances": [{"date": "2026-10-19", "amount": "1000.00"}],
+              "expenses": [{"date": "20.10.2026", "document": "Чек",
+                            "purpose": "Проезд", "amount": "950,00"}],
+          }
+          prepared = json.loads(call("/api/prepare", "POST", {"payload": payload}))
+          pdf = call("/api/pdf", "POST", prepared["report"])
+          assert pdf[:4] == b"%PDF", "PDF не сформирован"
+          print("PDF из собранной программы:", len(pdf), "байт")
+          saved = json.loads(call("/api/reports", "POST", payload))
+          print("Сохранён отчёт:", saved["number"])
+          EOF
+          kill "$APP_PID" || true
+          wait "$APP_PID" || true
