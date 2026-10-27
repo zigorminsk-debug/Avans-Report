@@ -527,11 +527,12 @@
   // -----------------------------------------------------------------------
   const NAV = [
     { href: '#/new', label: 'Новый отчёт', match: /^#\/new/ },
+    { href: '#/help', label: 'Инструкция', match: /^#\/help/ },
     { href: '#/settings', label: 'Настройки', match: /^#\/settings/ },
   ];
 
   const DEVELOPER = {
-    name: 'Zakharevuch Igor',
+    name: 'Zakharevich Igor',
     email: 'ziv@csl.by',
     phone: '+375293371412',
     phoneLabel: '+375 29 337-14-12',
@@ -649,6 +650,7 @@
         return;
       }
       if (hash === '#/settings') await renderSettings(seq);
+      else if (hash === '#/help') renderHelp(seq);
       else await renderEditor(seq);
     } catch (err) {
       if (seq !== routeSeq) return;
@@ -903,6 +905,8 @@
       <div class="doc-wrap"><div class="doc" id="editor-doc"></div></div>
       <div class="quick-tips no-print">
         <div><b>Ctrl+S</b> — сохранить отчёт. Черновик хранится отдельно в каждой вкладке.</div>
+        <div>Как заполнять и печатать — в разделе
+          <a href="#/help">«Инструкция»</a> (её можно распечатать).</div>
         <div>После сохранения отчёт получает номер и сразу записывается в PDF
           (${state.storeMode === 'server' ? esc(state.info.storage.folder) : 'папку, выбранную вами'}).</div>
       </div>`;
@@ -1364,6 +1368,170 @@
   }
 
   // -----------------------------------------------------------------------
+  // Инструкция
+  // -----------------------------------------------------------------------
+  function helpHtml() {
+    const folder = state.info && state.info.storage
+      ? (state.storeMode === 'server' ? state.info.storage.folder : 'папку, выбранную в браузере')
+      : 'папку отчётов';
+    return `
+      <div class="help">
+        <p class="help-lead">
+          Программа заполняет авансовый отчёт по форме организации, сохраняет его в PDF
+          и печатает. Вход в систему не нужен: запустили — и сразу заполняете.
+        </p>
+
+        <h3>1. Как заполнить отчёт</h3>
+        <ol class="help-steps">
+          <li>Откройте раздел <b>«Новый отчёт»</b> — появится бланк.</li>
+          <li>Заполните шапку: <b>дату отчёта</b>, <b>фамилию, имя и отчество</b> подотчётного
+            лица, <b>должность</b> и <b>назначение аванса</b> (выбирается из списка
+            или вписывается вручную).</li>
+          <li>В таблице «Получено» укажите <b>дату и сумму</b> выданного аванса.
+            Нужна ещё одна выдача — нажмите «Добавить» (до 3 строк).</li>
+          <li>В таблице расходов заполните <b>дату, документ, номер, назначение и сумму</b>
+            (до 10 строк). Пустые строки в бланк не попадут.</li>
+          <li>Суммы вводите как удобно: <code>1250,50</code> или <code>1250.50</code>.
+            Итоги, остаток (перерасход) и сумма прописью считаются сами.</li>
+          <li>Нажмите <b>«Сохранить отчёт»</b> (или <b>Ctrl+S</b>) — программа присвоит
+            номер, например <code>АО-2026-0001</code>, и сразу создаст PDF.</li>
+        </ol>
+        <p class="help-note">Незаконченный отчёт сохраняется как черновик в этой вкладке:
+          можно закрыть страницу и продолжить позже. Кнопка «Начать заново» очищает черновик.</p>
+
+        <h3>2. Сохранение в PDF и печать</h3>
+        <ul class="help-list">
+          <li><b>Печать</b> — открывает бланк A4 в отдельном окне с диалогом печати.
+            В диалоге выбирайте масштаб «По размеру страницы» / 100 %.</li>
+          <li><b>Скачать PDF</b> — сохраняет готовый файл
+            <code>АО-2026-0001.pdf</code> в любую папку
+            (в диалоге печати также можно выбрать «Сохранить как PDF»).</li>
+          <li><b>Открыть папку</b> — показывает папку, где лежат файлы отчётов.</li>
+          <li><b>Предпросмотр PDF</b> — показывает бланк до сохранения, номер при этом
+            ещё не занимается.</li>
+        </ul>
+
+        <h3>3. Несколько окон одновременно</h3>
+        <p>
+          Программу можно открыть в нескольких окнах и вкладках: у каждого окна свой
+          черновик, а номера отчётов не повторяются. Повторный запуск программы
+          не выдаёт «порт занят» — он просто открывает ещё одно окно к уже работающей
+          программе. Кнопка <b>«Новая сессия»</b> вверху создаёт отдельную папку
+          для новых отчётов.
+        </p>
+
+        <h3>4. Где лежат сохранённые отчёты</h3>
+        <p>
+          Сейчас отчёты сохраняются в ${esc(folder)}. Рядом с PDF лежит служебный
+          файл <code>.json</code> с данными отчёта — его лучше не удалять.
+          Папку открывает кнопка <b>«Открыть папку»</b> на странице результата
+          и в разделе «Настройки».
+        </p>
+        <p class="help-note">Списка отчётов в программе нет: каждая страница — это
+          заполнение нового отчёта, а сохранённые отчёты — файлы в папке.
+          Удаление отчёта — обычное удаление его файлов; нумерация при этом не сбивается.</p>
+
+        <h3>5. Настройки</h3>
+        <p>
+          В разделе <b>«Настройки»</b> указывают организацию, должности и фамилии
+          руководителя и бухгалтера, типовые назначения аванса и данные подотчётного
+          лица, которые подставляются в новый отчёт. Настройки общие для всех окон
+          и попадают в бланк и в PDF.
+        </p>
+
+        <h3>6. Обновления</h3>
+        <p>
+          Кнопка <b>«Проверить обновления»</b> в шапке проверяет новые версии на GitHub.
+          Если версия новее, программа покажет список изменений и ссылку на установщик.
+          Отчёты (файлы PDF) при обновлении не удаляются.
+        </p>
+
+        <h3>7. Если что-то не работает</h3>
+        <div class="table-wrap">
+          <table class="data help-table">
+            <thead><tr><th>Симптом</th><th>Что делать</th></tr></thead>
+            <tbody>
+              <tr><td>Браузер не открылся</td>
+                <td>Откройте адрес из окна программы — обычно
+                  <code>http://127.0.0.1:8780/</code></td></tr>
+              <tr><td>Не сохраняется отчёт</td>
+                <td>Проверьте дату, ФИО, назначение аванса и хотя бы одну строку расходов;
+                  папка отчётов должна быть доступна для записи</td></tr>
+              <tr><td>Интерфейс выглядит по-старому после обновления</td>
+                <td>Нажмите <b>Ctrl+F5</b> — браузер подтянет новый интерфейс</td></tr>
+              <tr><td>Нужен общий доступ и права сотрудников</td>
+                <td>Для этого есть серверная версия программы («Авансовые отчёты»)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>8. Разработчик</h3>
+        <p>
+          ${esc(DEVELOPER.name)} · <a href="mailto:${esc(DEVELOPER.email)}">${esc(DEVELOPER.email)}</a>
+          · <a href="tel:${esc(DEVELOPER.phone)}">${esc(DEVELOPER.phoneLabel)}</a>
+        </p>
+      </div>`;
+  }
+
+  function printHelp() {
+    const win = window.open('', '_blank');
+    if (!win) return toast('Браузер заблокировал окно печати', 'error');
+    win.document.open();
+    win.document.write(
+      '<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">' +
+      '<title>Инструкция — Авансовые отчёты</title>' +
+      '<style>' +
+      'body{font-family:Tahoma,Arial,sans-serif;color:#282829;font-size:12px;' +
+      'line-height:1.5;margin:18mm 16mm;}' +
+      'h1{font-size:17px;letter-spacing:1px;margin:0 0 4px;}' +
+      'h3{font-size:12.5px;letter-spacing:.6px;text-transform:uppercase;' +
+      'margin:16px 0 6px;padding-bottom:3px;border-bottom:1px solid #ccc;}' +
+      'ol,ul{margin:0 0 8px 18px;padding:0;} li{margin-bottom:3px;}' +
+      'code{font-family:Consolas,monospace;font-size:11.5px;}' +
+      'table{width:100%;border-collapse:collapse;margin-top:6px;}' +
+      'th,td{border:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top;' +
+      'font-size:11.5px;} th{background:#f2f2f3;}' +
+      '.help-lead{margin:0 0 10px;}' +
+      '.help-note{color:#606062;margin:4px 0 10px;}' +
+      '.help-foot{margin-top:18px;padding-top:8px;border-top:1px solid #ccc;' +
+      'color:#606062;font-size:11px;}' +
+      '@page{size:A4;margin:14mm;}' +
+      '</style></head><body>' +
+      '<h1>Авансовые отчёты — автономный режим</h1>' +
+      '<div style="color:#7e7e81;font-size:11px;margin-bottom:10px;">' +
+      'Инструкция по работе с программой · версия ' + esc(state.version) + '</div>' +
+      helpHtml() +
+      '<div class="help-foot">ООО «Сэйлз Модерн групп» · ' +
+      esc(DEVELOPER.name) + ' · ' + esc(DEVELOPER.email) + ' · ' +
+      esc(DEVELOPER.phoneLabel) + '</div>' +
+      '</body></html>');
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 350);
+  }
+
+  function renderHelp(seq) {
+    if (seq !== routeSeq) return;
+    setTitle('Инструкция');
+    content().innerHTML = `
+      <div class="card help-card">
+        <div class="card-head">
+          <h2>Инструкция по работе с программой</h2>
+          <div class="spacer"></div>
+          <button class="btn btn-sm" id="btn-help-print" type="button">
+            ${icon(ICON.print, 15)} Печать инструкции
+          </button>
+          <button class="btn btn-primary btn-sm" id="btn-help-new" type="button">
+            ${icon(ICON.plus, 15)} Заполнить отчёт
+          </button>
+        </div>
+        ${helpHtml()}
+      </div>`;
+    $('#btn-help-print').addEventListener('click', printHelp);
+    $('#btn-help-new').addEventListener('click', () => navigate('#/new'));
+  }
+
+  // -----------------------------------------------------------------------
   // Настройки
   // -----------------------------------------------------------------------
   async function renderSettings(seq) {
@@ -1374,7 +1542,8 @@
     content().innerHTML = `
       <div class="card">
         <div class="card-head"><h2>Организация и подписи</h2></div>
-        <p class="card-sub">Эти данные попадают в бланк отчёта и в PDF. Настройки общие для всех окон программы.</p>
+        <p class="card-sub">Эти данные попадают в бланк отчёта и в PDF. Настройки общие для всех окон программы.
+          Как работать с программой — в разделе <a href="#/help">«Инструкция»</a>.</p>
         <form id="settings-form">
           <div class="settings-grid">
             <div class="field">

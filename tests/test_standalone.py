@@ -326,12 +326,26 @@ def test_standalone_ui_has_no_saved_reports_section():
 
     assert "renderSaved" not in js
     assert "Сохранённые отчёты" not in js
-    assert len(re.findall(r"href: '#/", js)) == 2  # «Новый отчёт» и «Настройки»
+    assert len(re.findall(r"href: '#/", js)) == 3  # отчёт, инструкция, настройки
+
+
+def test_standalone_has_user_guide():
+    """В программе есть раздел «Инструкция» с порядком работы и печатью."""
+    js = (ROOT / "standalone" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "{ href: '#/help'" in js
+    assert "renderHelp" in js
+    assert "Инструкция по работе с программой" in js
+    assert "printHelp" in js
+    for step in ("Как заполнить отчёт", "Сохранение в PDF и печать",
+                 "Несколько окон одновременно", "Где лежат сохранённые отчёты",
+                 "Если что-то не работает"):
+        assert step in js, step
 
 
 def test_standalone_ui_shows_developer_contacts():
     js = (ROOT / "standalone" / "static" / "app.js").read_text(encoding="utf-8")
-    assert "Zakharevuch Igor" in js
+    assert "Zakharevich Igor" in js
     assert "ziv@csl.by" in js
     assert "+375293371412" in js
 
