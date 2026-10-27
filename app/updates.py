@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import time
@@ -53,6 +54,43 @@ def is_newer(candidate: str, current: str) -> bool:
     return parse_version(candidate) > parse_version(current)
 
 
+def ssl_context() -> ssl.SSLContext:
+    """Контекст проверки сертификатов для запросов к GitHub.
+
+    В собранной программе системные сертификаты могут быть не видны
+    (ошибка CERTIFICATE_VERIFY_FAILED), поэтому дополнительно подключаем
+    набор из пакета certifi. Системные сертификаты тоже грузим — на рабочих
+    компьютерах с антивирусом, проверяющим HTTPS, корневой сертификат
+    хранится именно там.
+    """
+    context = ssl.create_default_context()
+    try:
+        import certifi
+
+        context.load_verify_locations(cafile=certifi.where())
+    except (ImportError, OSError, ssl.SSLError):
+        pass
+    try:
+        context.load_default_certs()
+    except (OSError, ssl.SSLError):
+        pass
+    return context
+
+
+def _friendly_network_error(exc: BaseException) -> str:
+    """Понятное объяснение вместо простыни из ssl-ошибок."""
+    text = str(exc)
+    ssl_problem = any(token in text for token in (
+        "CERTIFICATE_VERIFY_FAILED", "certificate verify failed",
+        "CERTIFICATE_VERIFY", "SSLError",
+    ))
+    if ssl_problem:
+        return ("Не удалось проверить сертификат GitHub. Проверьте дату и время "
+                "на компьютере и нажмите «Скачать файл» — обновление можно "
+                "скачать в браузере через страницу релизов.")
+    return f"Нет связи с GitHub: {text}"
+
+
 def _request_json(url: str, timeout: int = 10) -> Dict[str, Any]:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -62,7 +100,9 @@ def _request_json(url: str, timeout: int = 10) -> Dict[str, Any]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+    with urllib.request.urlopen(  # noqa: S310
+        request, timeout=timeout, context=ssl_context()
+    ) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -136,7 +176,7 @@ def check_for_updates(force: bool = False,
         _cache.update(timestamp=now, payload=result, key=f"{asset_prefix}:")
         return dict(result)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-        result["error"] = f"Нет связи с GitHub: {exc}"
+        result["error"] = _friendly_network_error(exc)
         _cache.update(timestamp=now, payload=result, key=f"{asset_prefix}:")
         return dict(result)
 
@@ -178,7 +218,9 @@ def _download(url: str, target: Path, timeout: int = 120) -> Path:
     request = urllib.request.Request(url, headers=headers)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".part")
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+    with urllib.request.urlopen(  # noqa: S310
+        request, timeout=timeout, context=ssl_context()
+    ) as response:
         with open(tmp, "wb") as handle:
             shutil.copyfileobj(response, handle)
     if tmp.stat().st_size < 1024 * 100:

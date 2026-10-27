@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # Версия подставляется автоматически в GitHub Actions из git-тега (v1.2.3 -> 1.2.3).
 # При запуске из исходников значение ниже является версией по умолчанию.
-__version__ = "1.0.10"
+__version__ = "1.0.11"
 
 APP_NAME = "Авансовые отчёты"
 APP_SLUG = "AvansReport"

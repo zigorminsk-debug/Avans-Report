@@ -160,3 +160,46 @@ def test_pdf_fits_one_page_for_long_header_text():
                 "с ключевым клиентом и подписания договора поставки на 2027 год",
     )
     assert _pdf_pages(content) == 1
+
+
+def test_update_check_uses_trusted_certificates(monkeypatch):
+    """Проверка обновлений должна доверять сертификату GitHub в собранной программе."""
+    import ssl
+
+    from app import updates
+
+    context = updates.ssl_context()
+    assert isinstance(context, ssl.SSLContext)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    assert context.get_ca_certs(), "в контексте нет ни одного сертификата"
+
+
+def test_update_check_explains_certificate_error():
+    from app import updates
+
+    exc = ssl_error = Exception(
+        "SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+        "unable to get local issuer certificate (_ssl.c:1006)"
+    )
+    text = updates._friendly_network_error(ssl_error)
+    assert "сертификат" in text.lower()
+    assert "Скачать файл" in text
+    assert "CERTIFICATE_VERIFY_FAILED" not in text
+
+    other = updates._friendly_network_error(Exception("timed out"))
+    assert "Нет связи с GitHub" in other
+
+
+def test_packaging_bundles_certifi():
+    """Сертификаты certifi попадают в сборку, иначе обновления не проверяются."""
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent
+    for spec in ("AvansReport.spec", "AvansStandalone.spec"):
+        text = (root / "desktop" / spec).read_text(encoding="utf-8")
+        assert 'collect_data_files("certifi")' in text, spec
+        assert '"certifi"' in text, spec
+
+    assert "certifi" in (root / "requirements.txt").read_text(encoding="utf-8")
+    assert "certifi" in (root / "pyproject.toml").read_text(encoding="utf-8")

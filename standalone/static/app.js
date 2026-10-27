@@ -12,6 +12,8 @@
   const SESSION_KEY = 'avans.standalone.session';
   const DRAFT_PREFIX = 'avans.standalone.draft.';
   const MAX_ADVANCES = 3;
+  // Страница релизов: сюда ведёт «Скачать файл», если проверка обновлений не удалась.
+  const RELEASES_URL_DEFAULT = 'https://github.com/zigorminsk-debug/Avans-Report/releases';
   const MAX_EXPENSES = 10;
   const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -1581,6 +1583,10 @@
               <tr><td>Не сохраняется отчёт</td>
                 <td>Проверьте дату, ФИО, назначение аванса и хотя бы одну строку расходов;
                   папка отчётов должна быть доступна для записи</td></tr>
+              <tr><td>При проверке обновлений «Не удалось проверить сертификат GitHub»</td>
+                <td>Проверьте дату и время на компьютере. Обновление можно скачать
+                  вручную: кнопка <b>«Скачать файл»</b> в окне обновлений открывает
+                  страницу релизов в браузере</td></tr>
               <tr><td>Интерфейс выглядит по-старому после обновления</td>
                 <td>Нажмите <b>Ctrl+F5</b> — браузер подтянет новый интерфейс</td></tr>
               <tr><td>Нужен общий доступ и права сотрудников</td>
@@ -1826,8 +1832,8 @@
     head.insertAdjacentHTML('afterend', `
       <div class="modal-actions" style="margin:0 0 14px;justify-content:flex-start">
         <button class="btn" data-act="close">Закрыть</button>
-        ${info.download_url ? `<a class="btn" href="${esc(info.download_url)}" target="_blank"
-          rel="noopener">${icon(ICON.download, 15)} Скачать файл</a>` : ''}
+        <a class="btn" href="${esc(info.release_url || info.download_url || RELEASES_URL_DEFAULT)}"
+          target="_blank" rel="noopener">${icon(ICON.download, 15)} Скачать файл</a>
         ${info.can_install ? `<button class="btn btn-primary" data-act="install">
           ${icon(ICON.refresh, 15)} Установить и перезапустить</button>` : ''}
       </div>`);

@@ -7,12 +7,14 @@
 
 import os
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 root = os.path.abspath(os.path.join(SPECPATH, ".."))
 icon_path = os.path.join(root, "installer", "windows", "standalone.ico")
 
-datas = [
+# Сертификаты для проверки HTTPS при обращении к GitHub: без них в собранной
+# программе проверка обновлений падала с CERTIFICATE_VERIFY_FAILED.
+datas = collect_data_files("certifi") + [
     (os.path.join(root, "standalone", "static"), os.path.join("standalone", "static")),
     (os.path.join(root, "app", "static"), os.path.join("app", "static")),
     (os.path.join(root, "app", "assets", "fonts"), os.path.join("app", "assets", "fonts")),
@@ -22,6 +24,7 @@ hiddenimports = collect_submodules("uvicorn") + [
     "standalone.server",
     "app.pdf_export",
     "app.updates",
+    "certifi",
     "app.numberwords",
     "app.reports",
     "reportlab.pdfbase._fontdata",

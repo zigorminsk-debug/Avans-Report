@@ -1,6 +1,6 @@
 [project]
 name = "avans-report"
-version = "1.0.10"
+version = "1.0.11"
 description = "Авансовые отчёты: заполнение, PDF, печать и отправка по почте (серверная и автономная версии)"
 requires-python = ">=3.10"
 dependencies = [
@@ -9,6 +9,7 @@ dependencies = [
   "pydantic>=2.7,<3.0",
   "openpyxl>=3.1,<4.0",
   "reportlab>=4.1,<5.0",
+  "certifi>=2024.2",
 ]
 
 [tool.pytest.ini_options]

@@ -2528,8 +2528,8 @@
 
     const actions = `
       <button class="btn" data-act="close">Закрыть</button>
-      ${info.download_url ? `<a class="btn" href="${esc(info.download_url)}" target="_blank"
-          rel="noopener" data-act="download">${icon('download', 15)} Скачать файл</a>` : ''}
+      <a class="btn" href="${esc(info.release_url || info.download_url || 'https://github.com/zigorminsk-debug/Avans-Report/releases')}"
+        target="_blank" rel="noopener" data-act="download">${icon('download', 15)} Скачать файл</a>
       ${isAdmin && info.can_install ? `<button class="btn btn-primary" data-act="install">
           ${icon('refresh', 15)} Установить и перезапустить</button>` : ''}`;
     modal.querySelector('.modal-body').innerHTML = body;
