@@ -129,3 +129,74 @@ jobs:
           test -f standalone/static/extra.css
           test -f desktop/AvansStandalone.spec
           test -f installer/windows/AvansStandalone.iss
+
+  standalone-build:
+    name: Автономная сборка (PyInstaller)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Сборка
+        run: pyinstaller --noconfirm --clean desktop/AvansStandalone.spec
+
+      - name: Запуск собранной программы
+        shell: bash
+        run: |
+          export AVANS_STANDALONE_DATA_DIR="$RUNNER_TEMP/data"
+          rm -rf "$AVANS_STANDALONE_DATA_DIR"
+          ./dist/AvansStandalone/AvansStandalone --port 8794 --no-browser > "$RUNNER_TEMP/app.log" 2>&1 &
+          APP_PID=$!
+          ok=0
+          for i in $(seq 1 80); do
+            if curl -sf http://127.0.0.1:8794/api/health > /dev/null; then ok=1; break; fi
+            if ! kill -0 "$APP_PID" 2>/dev/null; then break; fi
+            sleep 0.5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error title=Собранная автономная программа не запустилась::$(tail -c 2500 "$RUNNER_TEMP/app.log" | tr '\n' ' ')"
+            echo "--- журнал программы ---"
+            tail -60 "$RUNNER_TEMP/app.log"
+            exit 1
+          fi
+          echo "--- health ---"
+          curl -sf http://127.0.0.1:8794/api/health
+          echo
+          python - <<'EOF'
+          import json, urllib.request
+
+          base = "http://127.0.0.1:8794"
+
+          def call(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method)
+              req.add_header("Content-Type", "application/json")
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return response.read()
+
+          payload = {
+              "report_date": "2026-10-26",
+              "person_name": "Проверка Сборки Автономная",
+              "purpose": "Командировочные расходы",
+              "advances": [{"date": "2026-10-19", "amount": "1000.00"}],
+              "expenses": [{"date": "20.10.2026", "document": "Чек",
+                            "purpose": "Проезд", "amount": "950,00"}],
+          }
+          prepared = json.loads(call("/api/prepare", "POST", {"payload": payload}))
+          pdf = call("/api/pdf", "POST", prepared["report"])
+          assert pdf[:4] == b"%PDF", "PDF не сформирован"
+          print("PDF из собранной программы:", len(pdf), "байт")
+          saved = json.loads(call("/api/reports", "POST", payload))
+          print("Сохранён отчёт:", saved["number"])
+          EOF
+          kill "$APP_PID" || true
+          wait "$APP_PID" || true

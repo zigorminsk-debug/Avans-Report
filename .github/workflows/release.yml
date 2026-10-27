@@ -344,10 +344,17 @@ jobs:
           AVANS_STANDALONE_DATA_DIR="$RUNNER_TEMP/standalone-data" \
             ./dist/AvansStandalone/AvansStandalone --port 8794 --no-browser > "$RUNNER_TEMP/standalone.log" 2>&1 &
           APP_PID=$!
-          for i in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:8794/api/health > /dev/null; then break; fi
+          ok=0
+          for i in $(seq 1 80); do
+            if curl -sf http://127.0.0.1:8794/api/health > /dev/null; then ok=1; break; fi
+            if ! kill -0 "$APP_PID" 2>/dev/null; then break; fi
             sleep 0.5
           done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error title=Собранная автономная программа не запустилась::$(tail -c 2500 "$RUNNER_TEMP/standalone.log" | tr '\n' ' ')"
+            tail -60 "$RUNNER_TEMP/standalone.log"
+            exit 1
+          fi
           echo "--- health ---"
           curl -sf http://127.0.0.1:8794/api/health
           echo

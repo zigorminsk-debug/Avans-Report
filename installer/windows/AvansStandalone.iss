@@ -26,7 +26,6 @@ AppSupportURL={#MyAppUrl}/issues
 AppUpdatesURL={#MyAppUrl}/releases
 VersionInfoVersion={#MyAppVersion}
 VersionInfoDescription=Автономная версия: заполнение, сохранение в PDF, печать
-DefaultDirName={autopf}\AvansStandalone
 DefaultGroupName={#MyAppShortName}
 DisableProgramGroupPage=yes
 OutputDir=..\..\dist\installer
