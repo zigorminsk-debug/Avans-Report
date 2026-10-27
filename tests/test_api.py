@@ -397,3 +397,16 @@ def test_login_throttle(client):
         "/api/auth/login", json={"username": create_user_name, "password": "Passw0rd123"}
     )
     assert blocked.status_code == 429
+
+def test_index_is_cache_busted():
+    """Серверная версия: ссылки на интерфейс помечены версией, HTML не кэшируется."""
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    with TestClient(create_app()) as client:
+        index = client.get("/")
+    assert index.status_code == 200
+    assert "no-store" in index.headers.get("cache-control", "")
+    assert "/static/app.js?v=" in index.text
+    assert "/static/styles.css?v=" in index.text

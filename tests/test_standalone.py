@@ -229,6 +229,20 @@ def test_client_files_served(client):
     assert favicon.status_code == 200
 
 
+def test_assets_are_cache_busted(client):
+    """После обновления программы браузер не должен показывать старый интерфейс."""
+    index = client.get("/")
+    assert index.status_code == 200
+    assert "no-store" in index.headers.get("cache-control", "")
+    for asset in ("/static/app.js", "/static/extra.css", "/shared/styles.css"):
+        assert f'{asset}?v=' in index.text, f"нет метки версии у {asset}"
+
+    script = client.get("/static/app.js")
+    assert "no-cache" in script.headers.get("cache-control", "")
+    styles = client.get("/static/extra.css")
+    assert "no-cache" in styles.headers.get("cache-control", "")
+
+
 # ---------------------------------------------------------------------------
 # Запуск процесса: один сервер на несколько «запусков» программы
 # ---------------------------------------------------------------------------

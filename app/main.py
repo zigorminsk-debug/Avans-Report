@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -238,6 +238,18 @@ async def lifespan(app: FastAPI):
     yield
 
 
+_ASSET_RE = re.compile(r'(href|src)="(/static/[^"?]+)"')
+
+
+def _index_html() -> Optional[str]:
+    """index.html со ссылками вида /static/app.js?v=<версия>."""
+    path = config.static_dir() / "index.html"
+    if not path.exists():
+        return None
+    html = path.read_text(encoding="utf-8")
+    return _ASSET_RE.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={__version__}"', html)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=APP_NAME,
@@ -257,8 +269,12 @@ def create_app() -> FastAPI:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         # Запрещаем кэширование HTML и API, чтобы после обновления не грузился старый интерфейс
-        if request.url.path.startswith("/api/") or request.url.path in ("/", "/index.html"):
+        path = request.url.path
+        if path.startswith("/api/") or path in ("/", "/index.html"):
             response.headers["Cache-Control"] = "no-store"
+        elif path.startswith("/static/"):
+            # Иначе после обновления браузер покажет старый app.js и старые стили
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
         return response
 
     @app.exception_handler(reports.ReportValidationError)
@@ -903,10 +919,10 @@ def create_app() -> FastAPI:
     # ---------------- Интерфейс ----------------
     @app.get("/", include_in_schema=False)
     def index():
-        path = config.static_dir() / "index.html"
-        if not path.exists():
+        page = _index_html()
+        if page is None:
             return JSONResponse(status_code=500, content={"detail": "Интерфейс не найден"})
-        return FileResponse(str(path), media_type="text/html")
+        return HTMLResponse(content=page, headers={"Cache-Control": "no-store, must-revalidate"})
 
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():

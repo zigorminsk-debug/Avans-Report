@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import pdf_export
@@ -41,6 +42,23 @@ def _safe_session(value: Optional[str]) -> str:
     if len(safe) >= 8:
         return safe
     return config.new_session_id()
+
+
+_NO_STORE = {"Cache-Control": "no-store, must-revalidate"}
+_ASSET_RE = re.compile(r'(href|src)="(/(?:static|shared)/[^"?]+)"')
+
+
+def _index_html() -> Optional[str]:
+    """index.html со ссылками, помеченными версией.
+
+    Браузер не должен держать старые app.js и extra.css после обновления
+    программы: адрес ассетов меняется вместе с версией.
+    """
+    path = config.standalone_static_dir() / "index.html"
+    if not path.exists():
+        return None
+    html = path.read_text(encoding="utf-8")
+    return _ASSET_RE.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={__version__}"', html)
 
 
 def _instance_port() -> Optional[int]:
@@ -93,8 +111,12 @@ def create_app() -> FastAPI:
     async def no_cache(request: Request, call_next):
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        if request.url.path.startswith("/api/") or request.url.path in ("/", "/index.html"):
+        path = request.url.path
+        if path.startswith("/api/") or path in ("/", "/index.html"):
             response.headers["Cache-Control"] = "no-store"
+        elif path.startswith(("/static/", "/shared/")):
+            # После обновления программы интерфейс должен подхватиться сразу
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
         return response
 
     # ------------------------------------------------------------------
@@ -328,10 +350,10 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @app.get("/", include_in_schema=False)
     def index():
-        path = config.standalone_static_dir() / "index.html"
-        if not path.exists():
+        page = _index_html()
+        if page is None:
             return JSONResponse(status_code=500, content={"detail": "Интерфейс не найден"})
-        return FileResponse(str(path), media_type="text/html")
+        return HTMLResponse(content=page, headers=_NO_STORE)
 
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():
@@ -345,8 +367,10 @@ def create_app() -> FastAPI:
     def fallback(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Не найдено")
-        path = config.standalone_static_dir() / "index.html"
-        return FileResponse(str(path), media_type="text/html")
+        page = _index_html()
+        if page is None:
+            raise HTTPException(status_code=404, detail="Не найдено")
+        return HTMLResponse(content=page, headers=_NO_STORE)
 
     return app
 
