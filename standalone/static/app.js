@@ -26,7 +26,6 @@
     dirHandle: null,
     draft: null,
     lastSaved: null,
-    savedList: [],
   };
 
   // -----------------------------------------------------------------------
@@ -395,19 +394,8 @@
         number: result.number,
         report: result.report,
         folder: result.folder,
-        files: [result.files.json, result.files.pdf],
+        pdfName: result.files.pdf_name || `${result.number}.pdf`,
       };
-    },
-    async list() {
-      const data = await api('/api/reports');
-      return { items: data.items, folder: data.folder };
-    },
-    async remove(number) {
-      await api('/api/reports/' + encodeURIComponent(number), { method: 'DELETE' });
-    },
-    async getReport(number) {
-      const data = await api('/api/reports/' + encodeURIComponent(number));
-      return data.report;
     },
     async pdfBlob(number) {
       return apiBlob('/api/reports/' + encodeURIComponent(number) + '/pdf');
@@ -434,17 +422,13 @@
       await writable.write(data);
       await writable.close();
     },
-    async _entries() {
-      const result = [];
-      if (!this.dir) return result;
-      for await (const entry of this.dir.values()) {
-        result.push(entry);
-      }
-      return result;
-    },
     async nextNumber(year) {
       let maximum = 0;
-      for (const entry of await this._entries()) {
+      const entries = [];
+      if (this.dir) {
+        for await (const entry of this.dir.values()) entries.push(entry);
+      }
+      for (const entry of entries) {
         const match = /^АО-(\d{4})-(\d{4,})\.json$/.exec(entry.name);
         if (match && Number(match[1]) === Number(year)) {
           maximum = Math.max(maximum, Number(match[2]));
@@ -463,50 +447,8 @@
         number,
         report: prepared.report,
         folder: this.dir.name,
-        files: [`${number}.json`, `${number}.pdf`],
+        pdfName: `${number}.pdf`,
       };
-    },
-    async list() {
-      const items = [];
-      const entries = await this._entries();
-      const names = new Set(entries.map((entry) => entry.name));
-      for (const entry of entries) {
-        if (!/^АО-.*\.json$/.test(entry.name)) continue;
-        try {
-          const file = await entry.getFile();
-          const data = JSON.parse(await file.text());
-          const number = data.number || entry.name.replace(/\.json$/, '');
-          items.push({
-            number,
-            report_date: data.report_date,
-            person_name: data.person_name,
-            person_position: data.person_position,
-            purpose: data.purpose,
-            totals: data.totals || {},
-            amount_words: data.amount_words,
-            created_at: data.created_at,
-            created_at_local: data.created_at_local,
-            has_pdf: names.has(`${number}.pdf`),
-            json_name: entry.name,
-            pdf_name: `${number}.pdf`,
-          });
-        } catch (err) { /* пропускаем повреждённый файл */ }
-      }
-      items.sort((a, b) => String(b.report_date || '').localeCompare(String(a.report_date || ''))
-        || b.number.localeCompare(a.number));
-      return { items, folder: this.dir ? this.dir.name : '' };
-    },
-    async remove(number) {
-      for (const name of [`${number}.json`, `${number}.pdf`]) {
-        try {
-          await this.dir.removeEntry(name);
-        } catch (err) { /* файла нет — ничего страшного */ }
-      }
-    },
-    async getReport(number) {
-      const handle = await this.dir.getFileHandle(`${number}.json`);
-      const file = await handle.getFile();
-      return JSON.parse(await file.text());
     },
     async pdfBlob(number) {
       const handle = await this.dir.getFileHandle(`${number}.pdf`);
@@ -584,59 +526,80 @@
   // Каркас
   // -----------------------------------------------------------------------
   const NAV = [
-    { href: '#/new', label: 'Новый отчёт', icon: ICON.plus, match: /^#\/new/ },
-    { href: '#/saved', label: 'Сохранённые отчёты', icon: ICON.table, match: /^#\/saved/ },
-    { href: '#/settings', label: 'Настройки', icon: ICON.settings, match: /^#\/settings/ },
+    { href: '#/new', label: 'Новый отчёт', match: /^#\/new/ },
+    { href: '#/settings', label: 'Настройки', match: /^#\/settings/ },
   ];
+
+  const DEVELOPER = {
+    name: 'Zakharevuch Igor',
+    email: 'ziv@csl.by',
+    phone: '+375293371412',
+    phoneLabel: '+375 29 337-14-12',
+  };
 
   function renderShell() {
     const current = location.hash || '#/new';
     const storageLabel = state.storeMode === 'server'
-      ? 'сохранение в общую папку программы'
-      : 'сохранение в выбранную папку';
+      ? 'Общая папка программы'
+      : 'Выбранная папка';
     $('#app').innerHTML = `
-      <div class="shell">
-        <aside class="sidebar">
-          <div class="brand">
-            <img class="logo" src="/static/favicon.svg" alt="">
-            <div class="brand-text">
-              <strong>Авансовые отчёты</strong>
-              <span>Автономный режим · без входа</span>
-            </div>
+      <div class="site">
+        <header class="site-head">
+          <div class="site-head-in">
+            <a class="brand" href="#/new">
+              <img class="logo" src="/static/favicon.svg" alt="">
+              <span class="brand-text">
+                <strong>СМ групп</strong>
+                <span>Авансовые отчёты · автономный режим</span>
+              </span>
+            </a>
+            <nav class="site-nav">
+              ${NAV.map((item) => `
+                <a href="${item.href}" class="${item.match.test(current) ? 'active' : ''}">
+                  ${esc(item.label)}
+                </a>`).join('')}
+              <button class="site-nav-btn" id="btn-check-updates" type="button">
+                Проверить обновления
+              </button>
+            </nav>
           </div>
-          <nav class="nav">
-            ${NAV.map((item) => `
-              <a href="${item.href}" class="${item.match.test(current) ? 'active' : ''}">
-                ${icon(item.icon)}<span>${esc(item.label)}</span>
-              </a>`).join('')}
-          </nav>
-          <div class="sidebar-foot">
-            <button class="btn btn-outline-light btn-sm" id="btn-check-updates" type="button"
-                    style="width:100%;justify-content:center">
-              ${icon(ICON.refresh, 15)} Проверить обновления
-            </button>
-            <button class="btn btn-outline-light btn-sm" id="btn-new-session" type="button"
-                    style="width:100%;justify-content:center;margin-top:6px">
-              ${icon(ICON.plus, 15)} Начать новую сессию
-            </button>
-            <div class="version-line">
-              <span>Версия <span data-version>${esc(state.version)}</span></span>
-              <span title="${esc(state.sessionId)}">сессия ${esc(state.sessionId.slice(-6))}</span>
-            </div>
-          </div>
-        </aside>
-        <div class="main">
-          <header class="topbar">
+        </header>
+
+        <div class="site-body">
+          <div class="page-head">
             <h1 id="page-title">Новый отчёт</h1>
-            <div class="spacer"></div>
-            <span class="mode-badge ${state.storeMode === 'server' ? '' : 'offline'}">
-              ${icon(ICON.folder, 14)} ${esc(storageLabel)}
-            </span>
-          </header>
+            <div class="page-head-side">
+              <span class="mode-badge ${state.storeMode === 'server' ? '' : 'offline'}">
+                ${icon(ICON.folder, 14)} ${esc(storageLabel)}
+              </span>
+              <button class="btn btn-sm" id="btn-new-session" type="button"
+                      title="Отдельная папка для новых отчётов">
+                ${icon(ICON.plus, 14)} Новая сессия
+              </button>
+            </div>
+          </div>
           <div class="content" id="content">
             <div class="center-box"><span class="spinner dark"></span> Загрузка…</div>
           </div>
         </div>
+
+        <footer class="site-foot">
+          <div class="site-foot-in">
+            <div class="foot-col">
+              <b>ООО «Сэйлз Модерн групп»</b>
+              <span>г. Минск, пр-т Независимости, 177, пом. 71 · <a href="http://sm-group.by"
+                    target="_blank" rel="noopener">sm-group.by</a></span>
+              <span class="foot-note">Авансовые отчёты · автономный режим · версия
+                <span data-version>${esc(state.version)}</span></span>
+            </div>
+            <div class="foot-col right">
+              <b>Разработчик</b>
+              <span>${esc(DEVELOPER.name)}</span>
+              <span><a href="mailto:${esc(DEVELOPER.email)}">${esc(DEVELOPER.email)}</a>
+                · <a href="tel:${esc(DEVELOPER.phone)}">${esc(DEVELOPER.phoneLabel)}</a></span>
+            </div>
+          </div>
+        </footer>
       </div>`;
     $('#btn-check-updates').addEventListener('click', () => checkUpdates(true));
     $('#btn-new-session').addEventListener('click', startNewSession);
@@ -646,7 +609,7 @@
   async function startNewSession() {
     const ok = await confirmDialog(
       'Начать новую сессию?',
-      'Будет создана отдельная папка для новых отчётов. Ранее сохранённые отчёты останутся на диске и в списке не пропадут (они в другой папке).',
+      'Будет создана отдельная папка для новых отчётов. Уже сохранённые отчёты останутся на диске — они лежат в предыдущей папке.',
       'Начать новую',
     );
     if (!ok) return;
@@ -680,8 +643,12 @@
       link.classList.toggle('active', link.getAttribute('href') === hash);
     });
     try {
-      if (hash === '#/saved') await renderSaved(seq);
-      else if (hash === '#/settings') await renderSettings(seq);
+      if (hash === '#/saved') {
+        // Раздел списка убран: старые ссылки ведут к заполнению нового отчёта
+        location.replace('#/new');
+        return;
+      }
+      if (hash === '#/settings') await renderSettings(seq);
       else await renderEditor(seq);
     } catch (err) {
       if (seq !== routeSeq) return;
@@ -909,7 +876,7 @@
   }, 400);
 
   async function renderEditor(seq) {
-    setTitle('Новый отчёт');
+    setTitle('Авансовый отчёт');
     if (!state.draft) state.draft = loadDraft() || emptyDraft();
     const restored = !!loadDraft();
     content().innerHTML = `
@@ -967,9 +934,6 @@
         route();
       }
     }));
-    const openSaved = $('#btn-open-saved');
-    if (openSaved) openSaved.addEventListener('click', () => navigate('#/saved'));
-
     renderEditorBody();
   }
 
@@ -989,7 +953,7 @@
       <div class="result-box no-print">
         <h3>Отчёт ${esc(saved.number)} сохранён в PDF</h3>
         <div class="files">
-          ${saved.files.map((file) => `<div>${esc(file)}</div>`).join('')}
+          <div>PDF: ${esc(saved.pdfName || saved.number + '.pdf')}</div>
           <div>папка: ${esc(saved.folder)}</div>
         </div>
         <div class="report-actions">
@@ -1400,107 +1364,6 @@
   }
 
   // -----------------------------------------------------------------------
-  // Сохранённые отчёты
-  // -----------------------------------------------------------------------
-  async function renderSaved(seq) {
-    setTitle('Сохранённые отчёты');
-    content().innerHTML = `<div class="center-box"><span class="spinner dark"></span> Читаем папку…</div>`;
-    let data;
-    try {
-      data = await state.store.list();
-    } catch (err) {
-      content().innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
-      return;
-    }
-    if (seq !== routeSeq) return;
-    state.savedList = data.items;
-    const totalCents = data.items.reduce((sum, item) => sum + Number((item.totals || {}).approved_cents || 0), 0);
-    content().innerHTML = `
-      <div class="card saved-card">
-        <div class="card-head">
-          <h2>${icon(ICON.table, 18)} Сохранённые отчёты</h2>
-          <div class="spacer"></div>
-          <button class="btn btn-sm" id="btn-refresh" type="button">${icon(ICON.refresh, 15)} Обновить</button>
-          <button class="btn btn-sm" id="btn-open-folder2" type="button">${icon(ICON.folder, 15)} Открыть папку</button>
-          <button class="btn btn-primary btn-sm" id="btn-new2" type="button">${icon(ICON.plus, 15)} Новый отчёт</button>
-        </div>
-        <div class="storage-bar">
-          <span>Папка:</span>
-          <span class="path" title="${esc(data.folder)}">${esc(data.folder)}</span>
-          <span>· отчётов: <b>${data.items.length}</b></span>
-          <span>· сумма к утверждению: <b>${fmtMoney(totalCents)} руб.</b></span>
-        </div>
-        <div class="table-wrap" id="saved-table" style="margin-top:14px">
-          ${data.items.length ? `
-            <table class="data">
-              <thead>
-                <tr>
-                  <th>Номер</th><th>Дата</th><th>Подотчётное лицо</th><th>Назначение</th>
-                  <th class="num">К утверждению</th><th>PDF</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${data.items.map((item) => `
-                  <tr>
-                    <td class="nowrap"><b>${esc(item.number)}</b></td>
-                    <td class="nowrap">${fmtDate(item.report_date)}</td>
-                    <td>${esc(item.person_name)}</td>
-                    <td>${esc(item.purpose)}</td>
-                    <td class="num">${fmtMoney((item.totals || {}).approved_cents)}</td>
-                    <td>${item.has_pdf ? '<span class="badge sent">есть</span>'
-                      : '<span class="badge muted">нет</span>'}</td>
-                    <td class="actions">
-                      <button class="btn btn-sm" data-saved="pdf" data-number="${esc(item.number)}"
-                              title="Открыть PDF">${icon(ICON.file, 14)} PDF</button>
-                      <button class="btn btn-sm" data-saved="print" data-number="${esc(item.number)}"
-                              title="Печать">${icon(ICON.print, 14)}</button>
-                      <button class="btn btn-sm" data-saved="download" data-number="${esc(item.number)}"
-                              title="Скачать PDF">${icon(ICON.download, 14)}</button>
-                      <button class="btn btn-sm btn-danger" data-saved="delete"
-                              data-number="${esc(item.number)}">${icon(ICON.trash, 14)}</button>
-                    </td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>` : `
-            <div class="empty-state">
-              <div class="big">${icon(ICON.file, 40)}</div>
-              <h3>Сохранённых отчётов пока нет</h3>
-              <p>Заполните первый отчёт — он сохранится в PDF и появится в этом списке.</p>
-              <button class="btn btn-primary" id="btn-new-empty" type="button">
-                ${icon(ICON.plus, 15)} Создать отчёт</button>
-            </div>`}
-        </div>
-      </div>`;
-    $('#btn-refresh').addEventListener('click', () => renderSaved(++routeSeq));
-    $('#btn-new2').addEventListener('click', () => navigate('#/new'));
-    const empty = $('#btn-new-empty');
-    if (empty) empty.addEventListener('click', () => navigate('#/new'));
-    $('#btn-open-folder2').addEventListener('click', () => safe(() => state.store.openFolder()));
-    $('#saved-table').addEventListener('click', (event) => safe(async () => {
-      const button = event.target.closest('[data-saved]');
-      if (!button) return;
-      const number = button.dataset.number;
-      const action = button.dataset.saved;
-      if (action === 'delete') {
-        const ok = await confirmDialog('Удалить отчёт?',
-          `Файлы отчёта ${number} (PDF и JSON) будут удалены с диска.`, 'Удалить', true);
-        if (!ok) return;
-        await state.store.remove(number);
-        toast('Отчёт удалён', 'success');
-        return renderSaved(++routeSeq);
-      }
-      const report = await state.store.getReport(number);
-      if (action === 'print') return printReport(report);
-      const blob = await state.store.pdfBlob(number);
-      if (action === 'download') return downloadBlob(blob, `${number}.pdf`);
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank');
-      if (!win) downloadBlob(blob, `${number}.pdf`);
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    }));
-  }
-
-  // -----------------------------------------------------------------------
   // Настройки
   // -----------------------------------------------------------------------
   async function renderSettings(seq) {
@@ -1578,6 +1441,20 @@
           Каждый запуск создаёт свою сессию и свою папку с отчётами — их можно
           открыть кнопкой «Открыть папку».
         </div>
+      </div>
+      <div class="card dev-card">
+        <div class="card-head"><h2>Разработчик</h2></div>
+        <div class="dev-line"><b>${esc(DEVELOPER.name)}</b></div>
+        <div class="dev-line">
+          Почта: <a href="mailto:${esc(DEVELOPER.email)}">${esc(DEVELOPER.email)}</a>
+        </div>
+        <div class="dev-line">
+          Телефон: <a href="tel:${esc(DEVELOPER.phone)}">${esc(DEVELOPER.phoneLabel)}</a>
+        </div>
+        <div class="dev-line" style="margin-top:8px">
+          Программа для
+          <a href="http://sm-group.by" target="_blank" rel="noopener">ООО «Сэйлз Модерн групп»</a>
+        </div>
       </div>`;
 
     $('#settings-form').addEventListener('submit', async (event) => {
@@ -1650,7 +1527,7 @@
         Обновления публикуются в
         <a href="https://github.com/${esc(state.info.github_repo)}/releases" target="_blank"
            rel="noopener">github.com/${esc(state.info.github_repo)}</a>.
-        Сохранённые отчёты при обновлении не удаляются.
+        Отчёты (файлы PDF) при обновлении не удаляются.
       </p>`;
     const head = modal.querySelector('.modal-head');
     head.insertAdjacentHTML('afterend', `

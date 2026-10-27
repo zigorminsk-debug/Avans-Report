@@ -304,3 +304,26 @@ def test_packaging_assets_for_standalone():
     iss = (ROOT / "installer" / "windows" / "AvansStandalone.iss").read_text(encoding="utf-8")
     assert "APP_VERSION" in iss
     assert "AvansStandalone" in iss
+
+
+def test_standalone_ui_has_no_saved_reports_section():
+    """В автономной версии нет раздела «Сохранённые отчёты» — только форма и настройки."""
+    js = (ROOT / "standalone" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "renderSaved" not in js
+    assert "Сохранённые отчёты" not in js
+    assert len(re.findall(r"href: '#/", js)) == 2  # «Новый отчёт» и «Настройки»
+
+
+def test_standalone_ui_shows_developer_contacts():
+    js = (ROOT / "standalone" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "Zakharevuch Igor" in js
+    assert "ziv@csl.by" in js
+    assert "+375293371412" in js
+
+
+def test_standalone_ui_uses_company_site_style():
+    css = (ROOT / "standalone" / "static" / "extra.css").read_text(encoding="utf-8").lower()
+    assert "#ca1616" in css        # красный акцент sm-group.by
+    assert "tahoma" in css         # шрифт сайта
+    assert "site-head" in css and "site-foot" in css
