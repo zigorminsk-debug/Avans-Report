@@ -32,7 +32,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "numpy", "pandas", "PIL", "pytest"],
+    # PIL (Pillow) нужен reportlab — исключать нельзя.
+    excludes=["tkinter", "matplotlib", "numpy", "pandas", "pytest"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

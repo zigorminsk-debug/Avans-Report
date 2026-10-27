@@ -80,3 +80,49 @@ def test_readme_documents_key_features():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for keyword in ("авансов", "установщик", "обновлен", "SQLite"):
         assert keyword.lower() in readme.lower()
+
+
+def _spec_excludes(path: Path) -> str:
+    import re
+
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"excludes=\[(.*?)\]", text, re.S)
+    assert match, f"в {path.name} нет списка excludes"
+    return match.group(1)
+
+
+def test_specs_do_not_exclude_pdf_dependencies():
+    """reportlab тянет PIL; fastapi и pydantic нужны самому приложению."""
+    for name in ("AvansReport.spec", "AvansStandalone.spec"):
+        excludes = _spec_excludes(ROOT / "desktop" / name)
+        for module in ('"PIL"', '"reportlab"', '"fastapi"', '"pydantic"'):
+            assert module not in excludes, f"{name}: нельзя исключать {module}"
+
+
+def test_installer_setup_sections_have_no_duplicates():
+    """Inno Setup падает на повторной директиве в [Setup]."""
+    for name in ("AvansReport.iss", "AvansStandalone.iss"):
+        path = ROOT / "installer" / "windows" / name
+        section = None
+        seen = set()
+        duplicates = []
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section = stripped
+                continue
+            if section != "[Setup]" or not stripped or stripped.startswith((";", "#")):
+                continue
+            if "=" in stripped:
+                key = stripped.split("=", 1)[0].strip()
+                if key in seen:
+                    duplicates.append(key)
+                seen.add(key)
+        assert not duplicates, f"{name}: повторные директивы {duplicates}"
+
+
+def test_standalone_spec_collects_needed_data():
+    spec = (ROOT / "desktop" / "AvansStandalone.spec").read_text(encoding="utf-8")
+    for part in ("standalone", "static", "assets", "fonts", "uvicorn"):
+        assert part in spec, f"в спецификации нет {part}"
+    assert '"fastapi"' not in _spec_excludes(ROOT / "desktop" / "AvansStandalone.spec")

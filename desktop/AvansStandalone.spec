@@ -40,7 +40,8 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     # fastapi и pydantic нужны самому приложению — их исключать нельзя.
-    excludes=["tkinter", "matplotlib", "numpy", "pandas", "PIL", "pytest",
+    # PIL (Pillow) нужен reportlab — исключать нельзя.
+    excludes=["tkinter", "matplotlib", "numpy", "pandas", "pytest",
               "openpyxl", "sqlalchemy", "PyQt5", "PySide6"],
     noarchive=False,
 )
