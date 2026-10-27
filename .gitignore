@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Build artefacts
+build/
+dist/
+*.spec
+!installer/**/*.spec
+
+# Local data / runtime files
+.data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+backups/
+updates/
+.arena/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

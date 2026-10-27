@@ -1,0 +1,20 @@
+[project]
+name = "avans-report"
+version = "1.0.0"
+description = "Авансовые отчёты: заполнение, печать и отправка по почте (клиент-сервер)"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "pydantic>=2.7,<3.0",
+  "openpyxl>=3.1,<4.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+  "ignore::UserWarning",
+  "ignore::DeprecationWarning",
+]
