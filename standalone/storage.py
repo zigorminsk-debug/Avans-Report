@@ -43,6 +43,7 @@ def _read_counters(folder: Path) -> Dict[str, int]:
 
 
 def _write_counters(folder: Path, counters: Dict[str, int]) -> None:
+    folder.mkdir(parents=True, exist_ok=True)  # папка появляется при первом сохранении
     path = folder / COUNTER_NAME
     tmp = path.with_suffix(".json.part")
     tmp.write_text(json.dumps(counters, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -132,6 +133,7 @@ def save_report(folder: Path, report: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _write_files(folder: Path, report: Dict[str, Any]) -> Dict[str, str]:
+    folder.mkdir(parents=True, exist_ok=True)
     pdf_bytes = pdf_export.build_report_pdf(report)
     json_path = folder / f"{report['number']}.json"
     pdf_path = folder / f"{report['number']}.pdf"
@@ -211,6 +213,8 @@ def cleanup_old_sessions(days: int = 30) -> int:
     removed = 0
     cutoff = date.today().toordinal() - max(1, int(days))
     root = config.sessions_dir()
+    if not root.is_dir():
+        return 0  # отчётов ещё не сохраняли — папку не создаём
     for folder in root.iterdir():
         if not folder.is_dir():
             continue

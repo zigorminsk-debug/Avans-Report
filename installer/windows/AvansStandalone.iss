@@ -38,7 +38,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Установка для текущего пользователя: не нужны права администратора,
-; а каталог отчётов доступен на запись без запросов UAC.
+; данные и отчёты хранятся в профиле пользователя и доступны на запись
+; без запросов UAC.
 PrivilegesRequired=lowest
 DefaultDirName={localappdata}\Programs\AvansStandalone
 CloseApplications=yes
@@ -57,15 +58,16 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 Source: "..\..\dist\AvansStandalone\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
+; Автономная версия ставит только ярлык программы: отдельного ярлыка
+; «Каталог отчётов» нет — папку с отчётами открывает кнопка «Открыть папку»
+; в самой программе.
 Name: "{group}\{#MyAppShortName}"; Filename: "{app}\{#MyAppExeName}"; Comment: "Заполнить и распечатать авансовый отчёт"
-Name: "{group}\Каталог отчётов"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--open-data-dir"
 Name: "{group}\Удалить {#MyAppShortName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 ; Первый запуск открывает браузер с формой отчёта.
 Filename: "{app}\{#MyAppExeName}"; Description: "Запустить {#MyAppShortName}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--open-data-dir"; Description: "Открыть папку с сохранёнными отчётами"; Flags: postinstall shellexec unchecked
 
 [UninstallDelete]
 ; Удаляются только файлы программы.

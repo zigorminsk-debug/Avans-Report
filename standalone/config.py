@@ -76,16 +76,29 @@ def data_dir() -> Path:
 
 
 def sessions_dir() -> Path:
-    path = data_dir() / "reports"
+    """Папка отчётов. Создаётся только при первом сохранении отчёта."""
+    return data_dir() / "reports"
+
+
+def sessions_dir_for_save() -> Path:
+    """Папка отчётов, готовая к записи (создаётся при необходимости)."""
+    path = sessions_dir()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def session_dir(session_id: str) -> Path:
+    """Путь папки сессии. На диск ничего не создаёт — папка появляется
+    только при сохранении отчёта."""
     safe = "".join(ch for ch in session_id if ch.isalnum() or ch in "-_")[:48]
     if not safe:
         raise ValueError("Некорректный идентификатор сессии")
-    path = sessions_dir() / safe
+    return sessions_dir() / safe
+
+
+def ensure_session_dir(session_id: str) -> Path:
+    """Папка сессии, готовая к записи (создаётся при необходимости)."""
+    path = session_dir(session_id)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -80,6 +80,7 @@ def _disposition(kind: str, filename: str, fallback: str) -> str:
 
 
 def _folder(request: Request) -> Path:
+    """Путь папки сессии; создаётся только при сохранении отчёта."""
     session_id = _safe_session(request.headers.get(SESSION_HEADER))
     return config.session_dir(session_id)
 
@@ -165,6 +166,7 @@ def create_app() -> FastAPI:
     def open_folder(request: Request) -> Dict[str, Any]:
         """Открывает папку с отчётами в проводнике (программа работает на этом же ПК)."""
         folder = _folder(request)
+        folder.mkdir(parents=True, exist_ok=True)  # папку создаём только по этой кнопке
         try:
             if sys.platform.startswith("win"):
                 os.startfile(str(folder))  # type: ignore[attr-defined]  # noqa: S606

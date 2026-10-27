@@ -228,7 +228,7 @@ def run(argv=None) -> int:
     cfg = config.read_config()
 
     if args.open_data_dir:
-        folder = config.sessions_dir()
+        folder = config.sessions_dir_for_save()
         try:
             if sys.platform.startswith("win"):
                 os.startfile(str(folder))  # type: ignore[attr-defined]  # noqa: S606

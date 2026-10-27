@@ -398,3 +398,42 @@ def test_ui_can_print_without_saving():
     assert "@page{size:A4" in js
     assert "sheet.style.zoom" in js          # подгонка под одну страницу
     assert "event.key.toLowerCase() === 'p'" in js  # Ctrl+P печатает бланк
+
+
+def test_standalone_installer_has_no_reports_shortcut():
+    """В автономной версии нет ярлыка «Каталог отчётов» и запуска папки отчётов."""
+    iss = (ROOT / "installer" / "windows" / "AvansStandalone.iss").read_text(encoding="utf-8")
+
+    assert 'Name: "{group}\\Каталог отчётов"' not in iss
+    assert "--open-data-dir" not in iss
+    assert 'Name: "{group}\\{#MyAppShortName}"' in iss  # ярлык самой программы остаётся
+
+
+def test_reports_folder_is_created_only_on_save(tmp_path, monkeypatch):
+    """Папка отчётов не появляется при запуске — только после сохранения."""
+    from standalone import config, storage
+
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path / "data"))
+    config.data_dir()  # корень данных создаётся
+
+    assert not config.sessions_dir().exists()
+    assert not config.session_dir("20260101-000000-abc").exists()
+    assert storage.list_reports(config.sessions_dir()) == []
+    assert storage.cleanup_old_sessions(30) == 0
+    assert not config.sessions_dir().exists()
+
+    from app.reports import ReportIn
+
+    folder = config.session_dir("20260101-000000-abc")
+    data = ReportIn(
+        report_date="2026-01-01",
+        person_name="Тестов Тест Тестович",
+        purpose="Командировочные расходы",
+        advances=[{"date": "2026-01-01", "amount": "1000"}],
+        expenses=[{"date": "01.01.2026", "document": "Чек", "purpose": "проезд",
+                   "amount": "500"}],
+    )
+    storage.save_new_report(folder, data, dict(config.DEFAULT_SETTINGS), 2026)
+
+    assert config.sessions_dir().is_dir()
+    assert folder.is_dir()
