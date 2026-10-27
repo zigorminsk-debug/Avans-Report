@@ -110,6 +110,19 @@ jobs:
           }
           Get-ChildItem "dist\installer" | Format-Table Name, Length
 
+      - name: Проверка сборки
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\AvansReport\AvansReport.exe")) { throw "AvansReport.exe не собран" }
+          $static = Get-ChildItem -Recurse "dist\AvansReport" -Filter "index.html" |
+                    Where-Object { $_.FullName -like "*app\static*" }
+          if (-not $static) { throw "В сборку не попал интерфейс (app/static/index.html)" }
+          $template = Get-ChildItem -Recurse "dist\AvansReport" -Filter "template.xlsm"
+          if (-not $template) { throw "В сборку не попал шаблон бланка (template.xlsm)" }
+          Write-Host "Интерфейс: $($static.FullName)"
+          Write-Host "Шаблон:   $($template.FullName)"
+          Get-Item "dist\AvansReport\AvansReport.exe" | Format-List Name, Length
+
       - name: Портативная сборка
         shell: pwsh
         run: |
@@ -148,9 +161,61 @@ jobs:
       - name: Сборка
         run: pyinstaller --noconfirm --clean desktop/AvansReport.spec
 
+      - name: Проверка запуска собранной программы
+        shell: bash
+        run: |
+          set -e
+          export AVANS_DATA_DIR="$RUNNER_TEMP/avansdata"
+          ./dist/AvansReport/AvansReport --host 127.0.0.1 --port 8799 --no-browser &
+          APP_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8799/api/health > /dev/null; then break; fi
+            sleep 0.5
+          done
+          echo "--- health ---"
+          curl -sf http://127.0.0.1:8799/api/health
+          echo
+          echo "--- интерфейс ---"
+          curl -sf http://127.0.0.1:8799/ | grep -q "Авансовые отчёты" && echo "HTML отдан"
+          curl -sf http://127.0.0.1:8799/static/app.js > /dev/null && echo "app.js отдан"
+          curl -sf http://127.0.0.1:8799/static/styles.css > /dev/null && echo "styles.css отдан"
+          curl -sf http://127.0.0.1:8799/api/public/info
+          echo
+          # Проверяем, что шаблон бланка доступен в сборке
+          python3 - <<'EOF'
+          import urllib.request, json
+          base = "http://127.0.0.1:8799"
+          def call(path, method="GET", body=None, token=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method)
+              if data: req.add_header("Content-Type", "application/json")
+              if token: req.add_header("Authorization", "Bearer " + token)
+              with urllib.request.urlopen(req) as r: return json.loads(r.read().decode() or "{}")
+          admin = call("/api/setup", "POST", {"username": "admin", "password": "Admin12345",
+                      "full_name": "CI Проверка", "org_name": "CI"})
+          token = admin["token"]
+          report = call("/api/reports", "POST", {
+              "report_date": "2026-10-26",
+              "person_name": "Проверка Сборки Ивановна",
+              "person_position": "тест",
+              "purpose": "Командировочные расходы",
+              "advances": [{"date": "2026-10-19", "amount": "100.00"}],
+              "expenses": [{"date": "20.10.2026", "document": "Чек",
+                            "document_number": "1", "purpose": "тест", "amount": "99,99"}],
+          }, token)
+          print("Отчёт создан:", report["number"], report["amount_words"])
+          req = urllib.request.Request(base + f"/api/reports/{report['id']}/excel", headers={"Authorization": "Bearer " + token})
+          with urllib.request.urlopen(req) as r:
+              content = r.read()
+          assert content[:2] == b"PK", "Excel не сформирован"
+          print("Excel-бланк сформирован:", len(content), "байт")
+          EOF
+          kill $APP_PID || true
+
       - name: Архив
         run: |
           VERSION="${{ needs.version.outputs.version }}"
+          tar -tzf dist/AvansReport-Linux-x86_64-*.tar.gz 2>/dev/null | head -5 || true
           mkdir -p dist/release
           cp -r dist/AvansReport dist/release/AvansReport
           cp README.md dist/release/
