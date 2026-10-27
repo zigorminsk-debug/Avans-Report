@@ -46,12 +46,34 @@ def resource_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _static_candidates(*parts: str):
+    """Где искать файлы интерфейса.
+
+    Кроме каталога сборки проверяем папку программы и текущий каталог:
+    если программу скопировали или распаковали не целиком, интерфейс
+    всё равно найдётся. Иначе браузер показывал «Интерфейс не найден».
+    """
+    yield resource_dir().joinpath(*parts)
+    exe = Path(sys.executable).resolve().parent
+    yield exe.joinpath(*parts)
+    if getattr(sys, "frozen", False):
+        yield exe.parent.joinpath(*parts)
+    yield Path.cwd().joinpath(*parts)
+
+
+def _first_dir(*parts: str) -> Path:
+    for candidate in _static_candidates(*parts):
+        if candidate.is_dir():
+            return candidate
+    return resource_dir().joinpath(*parts)
+
+
 def standalone_static_dir() -> Path:
-    return resource_dir() / "standalone" / "static"
+    return _first_dir("standalone", "static")
 
 
 def shared_static_dir() -> Path:
-    return resource_dir() / "app" / "static"
+    return _first_dir("app", "static")
 
 
 def installed_fonts_dir() -> Path:

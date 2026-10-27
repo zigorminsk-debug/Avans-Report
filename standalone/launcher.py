@@ -113,38 +113,104 @@ class InstanceLock:
 # ---------------------------------------------------------------------------
 # Определение уже работающего экземпляра
 # ---------------------------------------------------------------------------
-def is_our_server(port: int, timeout: float = 1.2) -> bool:
+def server_info(port: int, timeout: float = 1.2) -> Optional[Dict[str, Any]]:
+    """Ответ /api/health программы на этом порту (или None, если это не она)."""
     for host in ("127.0.0.1", "localhost"):
         try:
             with urllib.request.urlopen(  # noqa: S310
                 f"http://{host}:{port}/api/health", timeout=timeout
             ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-                if payload.get("mode") == "standalone" and payload.get("app") == config.APP_NAME:
-                    return True
         except (urllib.error.URLError, OSError, ValueError):
             continue
-    return False
+        if payload.get("mode") == "standalone" and payload.get("app") == config.APP_NAME:
+            return payload
+    return None
+
+
+def is_our_server(port: int, timeout: float = 1.2) -> bool:
+    return server_info(port, timeout) is not None
+
+
+def instance_problem(payload: Dict[str, Any], data_dir: Optional[str] = None) -> Optional[str]:
+    """Почему экземпляр нельзя переиспользовать (None — можно)."""
+    if not payload:
+        return "не отвечает"
+    if str(payload.get("version") or "") != __version__:
+        return f"другая версия программы ({payload.get('version') or '?'})"
+    if data_dir is not None and str(payload.get("data_dir") or "") != str(data_dir):
+        return "другой каталог данных"
+    if not payload.get("ui", True):
+        return "нет файлов интерфейса"
+    return None
+
+
+def is_usable_instance(payload: Dict[str, Any], data_dir: Optional[str] = None) -> bool:
+    """Этот экземпляр можно переиспользовать (та же версия, данные и интерфейс).
+
+    Процесс старой версии после обновления остаётся жить: его файлы уже
+    заменены, интерфейс не отдаётся, а старый instance.json указывает на него.
+    Открывать такой порт нельзя — иначе браузер показывает «Интерфейс не найден».
+    Экземпляр с другим каталогом данных — тоже не наш (иначе одно окно
+    программы открывало бы отчёты другого пользователя/каталога).
+    """
+    return instance_problem(payload, data_dir) is None
 
 
 def running_instance() -> Optional[Dict[str, Any]]:
+    """Работающий экземпляр этой же версии (по instance.json или порту по умолчанию)."""
+    candidates = []
     path = config.instance_path()
-    if not path.exists():
-        return None
+    if path.exists():
+        try:
+            candidates.append(int(json.loads(path.read_text(encoding="utf-8")).get("port") or 0))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    port = int(payload.get("port") or 0)
-    if port and is_our_server(port):
+        candidates.append(int(config.read_config().get("port") or config.DEFAULT_PORT))
+    except (OSError, ValueError, TypeError):
+        pass
+    candidates.append(config.DEFAULT_PORT)
+
+    seen = set()
+    for port in candidates:
+        if not port or port in seen:
+            continue
+        seen.add(port)
+        payload = server_info(port)
+        if payload is None:
+            continue
+        problem = instance_problem(payload, str(config.data_dir()))
+        if problem:
+            logging.getLogger("avans.standalone.launcher").warning(
+                "Порт %s: %s — этот экземпляр не используем", port, problem
+            )
+            continue
+        payload["port"] = port
         payload["url"] = f"http://127.0.0.1:{port}/"
         return payload
     return None
 
 
-def port_available(port: int) -> bool:
+def port_answers(port: int, timeout: float = 0.35) -> bool:
+    """Кто-то уже слушает порт (в том числе чужая программа или старая копия)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.settimeout(timeout)
+        try:
+            return sock.connect_ex(("127.0.0.1", port)) == 0
+        except OSError:
+            return False
+
+
+def port_available(port: int) -> bool:
+    if port_answers(port):
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        if not sys.platform.startswith("win"):
+            # На Windows SO_REUSEADDR позволяет занять уже используемый порт
+            # (браузер потом открывал чужой порт), на Linux/macOS он нужен,
+            # чтобы не мешали «повисшие» соединения после остановки программы.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", port))
             return True
@@ -171,8 +237,10 @@ def write_instance(port: int) -> None:
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "url": f"http://127.0.0.1:{port}/",
     }
-    config.instance_path().write_text(json.dumps(payload, ensure_ascii=False, indent=2),
-                                       encoding="utf-8")
+    path = config.instance_path()
+    tmp = path.with_suffix(".json.part")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def clear_instance() -> None:
@@ -270,8 +338,11 @@ def run(argv=None) -> int:
         return 0
 
     lock = InstanceLock(config.lock_path())
-    if not lock.acquire():
-        # Другой процесс стартует прямо сейчас — подождём его и откроем окно
+    acquired = lock.acquire()
+    if not acquired:
+        # Другой процесс стартует прямо сейчас — подождём его и откроем окно.
+        # Если он так и не поднялся (например, это старая версия после
+        # обновления), запускаем свой сервер, а не выходим с ошибкой.
         for _ in range(40):
             time.sleep(0.25)
             existing = running_instance()
@@ -281,10 +352,27 @@ def run(argv=None) -> int:
                 else:
                     open_url(existing["url"])
                 return 0
-        log.error("Не удалось подключиться к запущенной программе")
-        return 1
+            if lock.acquire():
+                acquired = True
+                break
+        if not acquired:
+            log.warning("Найден другой запущенный экземпляр программы — запускаем свой")
 
-    port = choose_port(int(args.port or cfg.get("port") or config.DEFAULT_PORT))
+    existing = running_instance()
+    if existing:
+        if acquired:
+            lock.release()
+        log.info("Программа уже запущена: %s", existing["url"])
+        if args.no_browser or args.print_url:
+            print(existing["url"])
+        else:
+            open_url(existing["url"])
+        return 0
+
+    requested = int(args.port or cfg.get("port") or config.DEFAULT_PORT)
+    port = choose_port(requested)
+    if port != requested:
+        log.info("Порт %s занят — программа работает на порту %s", requested, port)
     write_instance(port)
     url = f"http://127.0.0.1:{port}/"
 
@@ -308,8 +396,17 @@ def run(argv=None) -> int:
     if not wait_for_server(port):
         log.error("Сервер не запустился. Журнал: %s", config.log_path())
         clear_instance()
-        lock.release()
+        if acquired:
+            lock.release()
         return 1
+
+    info = server_info(port) or {}
+    if not info.get("ui", True):
+        log.error(
+            "На порту %s работает сервер без файлов интерфейса (%s). "
+            "Установите программу заново или закройте старую копию.",
+            port, config.standalone_static_dir(),
+        )
 
     log.info("%s %s запущен", config.APP_NAME, __version__)
     log.info("Интерфейс: %s", url)

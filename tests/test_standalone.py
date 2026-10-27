@@ -437,3 +437,78 @@ def test_reports_folder_is_created_only_on_save(tmp_path, monkeypatch):
 
     assert config.sessions_dir().is_dir()
     assert folder.is_dir()
+
+
+def test_health_reports_ui_availability(client):
+    """По /api/health видно, есть ли у процесса файлы интерфейса."""
+    health = client.get("/api/health").json()
+    assert health["ui"] is True
+    assert health["version"]
+
+
+def test_launcher_rejects_foreign_or_old_instance():
+    """Старую копию после обновления нельзя переиспользовать."""
+    from app.version import __version__
+    from standalone import launcher
+
+    ok = {"version": __version__, "ui": True, "mode": "standalone"}
+    assert launcher.is_usable_instance(ok)
+    assert not launcher.is_usable_instance({**ok, "version": "1.0.2"})
+    assert not launcher.is_usable_instance({**ok, "ui": False})
+    assert not launcher.is_usable_instance({})
+
+
+def test_choosing_port_skips_busy_one():
+    """Порт, на котором кто-то слушает, не выбирается."""
+    import socket
+
+    from standalone import launcher
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        busy = sock.getsockname()[1]
+        assert launcher.port_answers(busy)
+        assert not launcher.port_available(busy)
+        chosen = launcher.choose_port(busy, attempts=5)
+        assert chosen != busy
+
+
+def test_missing_ui_page_is_explained(client, monkeypatch, tmp_path):
+    """Если файлы интерфейса пропали, вместо JSON показывается объяснение."""
+    from standalone import config, server
+
+    monkeypatch.setattr(config, "standalone_static_dir", lambda: tmp_path / "нет")
+    monkeypatch.setattr(server, "config", config)
+
+    response = client.get("/")
+    assert response.status_code == 500
+    assert "Файлы интерфейса не найдены" in response.text
+    assert "установите программу заново" in response.text.lower()
+
+
+def json_loads(text):
+    import json as _json
+    return _json.loads(text)
+
+
+def test_instance_file_is_written_atomically(tmp_path, monkeypatch):
+    from standalone import config, launcher
+
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path / "data"))
+    launcher.write_instance(8899)
+    payload = json_loads((config.instance_path()).read_text(encoding="utf-8"))
+    assert payload["port"] == 8899
+    assert payload["version"]
+    assert not config.instance_path().with_suffix(".json.part").exists()
+
+
+def test_instance_problem_explains_reason():
+    from app.version import __version__
+    from standalone import launcher
+
+    base = {"version": __version__, "ui": True, "data_dir": "/data"}
+    assert launcher.instance_problem(base, "/data") is None
+    assert "версия" in launcher.instance_problem({**base, "version": "1.0.2"}, "/data")
+    assert "каталог" in launcher.instance_problem(base, "/other")
+    assert "интерфейс" in launcher.instance_problem({**base, "ui": False}, "/data")

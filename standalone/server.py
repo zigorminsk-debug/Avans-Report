@@ -61,6 +61,28 @@ def _index_html() -> Optional[str]:
     return _ASSET_RE.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={__version__}"', html)
 
 
+def _missing_ui_html() -> str:
+    """Понятная страница вместо служебного JSON, если файлы интерфейса не найдены."""
+    folder = config.standalone_static_dir()
+    return (
+        "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
+        "<title>Файлы интерфейса не найдены</title></head>"
+        "<body style=\"font-family:Tahoma,Arial,sans-serif;margin:40px;color:#282829;\">"
+        "<h1 style=\"font-size:20px;\">Файлы интерфейса не найдены</h1>"
+        "<p>Программа запущена, но рядом с ней нет папки с интерфейсом:</p>"
+        f"<p style=\"background:#f4f4f5;padding:10px;border-radius:4px;\"><code>{folder}</code></p>"
+        "<p>Что делать:</p><ol>"
+        "<li>закройте все окна программы;</li>"
+        "<li>установите программу заново из установщика;</li>"
+        "<li>или запустите файл <code>AvansStandalone.exe</code> из папки, "
+        "куда распакован архив (там должны быть папки <code>standalone</code> и "
+        "<code>app</code>).</li></ol>"
+        "<p>Другой причиной может быть запущенная копия старой версии программы — "
+        "закройте её через диспетчер задач.</p>"
+        "</body></html>"
+    )
+
+
 def _instance_port() -> Optional[int]:
     """Порт запущенного сервера — для запросов через прокси без порта в Host."""
     try:
@@ -125,11 +147,14 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @app.get("/api/health")
     def health(request: Request) -> Dict[str, Any]:
+        # ui — есть ли файлы интерфейса: по этому признаку программа
+        # отличает рабочий экземпляр от «осиротевшего» процесса старой версии.
         return {
             "status": "ok",
             "app": config.APP_NAME,
             "version": __version__,
             "mode": "standalone",
+            "ui": (config.standalone_static_dir() / "index.html").exists(),
             "port": request.url.port or _instance_port(),
             "data_dir": str(config.data_dir()),
         }
@@ -354,7 +379,7 @@ def create_app() -> FastAPI:
     def index():
         page = _index_html()
         if page is None:
-            return JSONResponse(status_code=500, content={"detail": "Интерфейс не найден"})
+            return HTMLResponse(status_code=500, content=_missing_ui_html(), headers=_NO_STORE)
         return HTMLResponse(content=page, headers=_NO_STORE)
 
     @app.get("/favicon.svg", include_in_schema=False)
@@ -371,7 +396,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Не найдено")
         page = _index_html()
         if page is None:
-            raise HTTPException(status_code=404, detail="Не найдено")
+            return HTMLResponse(status_code=500, content=_missing_ui_html(), headers=_NO_STORE)
         return HTMLResponse(content=page, headers=_NO_STORE)
 
     return app
