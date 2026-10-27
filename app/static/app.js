@@ -878,6 +878,8 @@
                   <button class="btn btn-sm" data-action="open" data-id="${report.id}">Открыть</button>
                   <button class="btn btn-sm" data-action="print" data-id="${report.id}"
                           title="Печать">${icon('print', 14)}</button>
+                  <button class="btn btn-sm" data-action="pdf" data-id="${report.id}"
+                          title="Скачать PDF">${icon('file', 14)}</button>
                   <button class="btn btn-sm" data-action="excel" data-id="${report.id}"
                           title="Скачать Excel">${icon('download', 14)}</button>
                   <button class="btn btn-sm" data-action="email" data-id="${report.id}"
@@ -903,6 +905,7 @@
       const action = button.dataset.action;
       if (action === 'open') return navigate('#/reports/' + id);
       if (action === 'print') return printReportById(id);
+      if (action === 'pdf') return safe(() => downloadFile(`/api/reports/${id}/pdf`));
       if (action === 'excel') return safe(() => downloadFile(`/api/reports/${id}/excel`));
       if (action === 'email') return openEmailModal(id);
       if (action === 'delete') return deleteReport(id);
@@ -1124,6 +1127,7 @@
           <div class="flex">
             <a class="btn" href="#/reports">${icon('back', 15)} К списку</a>
             <button class="btn" id="btn-print" type="button">${icon('print', 15)} Печать</button>
+            <button class="btn" id="btn-pdf" type="button">${icon('file', 15)} PDF</button>
             <button class="btn" id="btn-excel" type="button">${icon('download', 15)} Excel</button>
             ${canEmail ? `<button class="btn" id="btn-email" type="button">${icon('mail', 15)} Отправить</button>` : ''}
             <button class="btn" id="btn-copy" type="button">${icon('plus', 15)} Новый на основе</button>
@@ -1140,6 +1144,8 @@
       <div class="doc-wrap">${documentHtml(report)}</div>`;
 
     $('#btn-print').addEventListener('click', () => printReport(report));
+    $('#btn-pdf').addEventListener('click', () => safe(() =>
+      downloadFile(`/api/reports/${report.id}/pdf`)));
     $('#btn-excel').addEventListener('click', () => safe(() =>
       downloadFile(`/api/reports/${report.id}/excel`)));
     $('#btn-email').addEventListener('click', () => openEmailModal(report.id));

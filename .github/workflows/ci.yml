@@ -60,6 +60,52 @@ jobs:
           curl -sf http://127.0.0.1:8771/ | grep -q "Авансовые отчёты"
           kill $SERVER_PID
 
+      - name: Проверка автономной версии
+        run: |
+          set -e
+          export AVANS_STANDALONE_DATA_DIR="$RUNNER_TEMP/standalone"
+          python -m standalone.launcher --port 8791 --no-browser --print-url > "$RUNNER_TEMP/standalone.log" 2>&1 &
+          LAUNCH_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8791/api/health > /dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8791/api/info
+          echo
+          curl -sf http://127.0.0.1:8791/ | grep -q "автономный режим"
+          python - <<'EOF'
+          import json, urllib.request
+          base = "http://127.0.0.1:8791"
+          def call(path, method="GET", body=None, sid="ci-session"):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method)
+              req.add_header("Content-Type", "application/json")
+              req.add_header("X-Session-Id", sid)
+              with urllib.request.urlopen(req) as r:
+                  return r.headers.get("content-type", ""), r.read()
+          payload = {
+              "report_date": "2026-10-26",
+              "person_name": "Проверка Автономная Ивановна",
+              "person_position": "инженер",
+              "purpose": "Командировочные расходы",
+              "advances": [{"date": "2026-10-19", "amount": "1000.00"}],
+              "expenses": [{"date": "20.10.2026", "document": "Чек",
+                            "document_number": "1", "purpose": "Проезд", "amount": "950,00"}],
+          }
+          _, prepared = call("/api/prepare", "POST", {"payload": payload})
+          prepared = json.loads(prepared)
+          print("Подготовлен отчёт:", prepared["number"])
+          _, content = call("/api/pdf", "POST", prepared["report"])
+          assert content[:4] == b"%PDF", "PDF не сформирован"
+          print("PDF:", len(content), "байт")
+          _, saved = call("/api/reports", "POST", payload)
+          saved = json.loads(saved)
+          print("Сохранён:", saved["number"], saved["files"]["pdf_name"])
+          EOF
+          kill $LAUNCH_PID || true
+          wait $LAUNCH_PID || true
+          cat "$RUNNER_TEMP/standalone.log"
+
   frontend:
     name: Проверка интерфейса
     runs-on: ubuntu-latest
@@ -69,10 +115,17 @@ jobs:
         with:
           node-version: '20'
       - name: Синтаксис JavaScript
-        run: node --check app/static/app.js
+        run: |
+          node --check app/static/app.js
+          node --check standalone/static/app.js
       - name: Обязательные файлы интерфейса
         run: |
           test -f app/static/index.html
           test -f app/static/styles.css
           test -f app/static/app.js
           test -f app/assets/template.xlsm
+          test -f standalone/static/index.html
+          test -f standalone/static/app.js
+          test -f standalone/static/extra.css
+          test -f desktop/AvansStandalone.spec
+          test -f installer/windows/AvansStandalone.iss

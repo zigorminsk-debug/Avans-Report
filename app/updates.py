@@ -66,9 +66,15 @@ def _request_json(url: str, timeout: int = 10) -> Dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _pick_assets(assets: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """Раскладывает файлы релиза по платформам."""
+def _pick_assets(assets: List[Dict[str, Any]],
+                 prefix: str = "AvansReport") -> Dict[str, Dict[str, Any]]:
+    """Раскладывает файлы релиза по платформам.
+
+    prefix позволяет отделить файлы серверной версии (AvansReport) от автономной
+    (AvansStandalone): в одном релизе публикуются оба установщика.
+    """
     picked: Dict[str, Dict[str, Any]] = {}
+    prefix_lower = prefix.lower()
     for asset in assets:
         name = (asset.get("name") or "").lower()
         info = {
@@ -76,6 +82,11 @@ def _pick_assets(assets: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             "size": asset.get("size"),
             "url": asset.get("browser_download_url"),
         }
+        if name.endswith(".sha256"):
+            picked.setdefault("checksums", info)
+            continue
+        if prefix_lower and prefix_lower not in name:
+            continue
         if name.endswith(".exe") and ("setup" in name or "install" in name):
             picked.setdefault("windows_installer", info)
         elif name.endswith(".zip") and "portable" in name:
@@ -84,16 +95,16 @@ def _pick_assets(assets: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             picked.setdefault("linux_archive", info)
         elif name.endswith((".dmg", ".pkg")):
             picked.setdefault("macos_installer", info)
-        elif name.endswith(".sha256"):
-            picked.setdefault("checksums", info)
     return picked
 
 
-def check_for_updates(force: bool = False) -> Dict[str, Any]:
+def check_for_updates(force: bool = False,
+                      asset_prefix: str = "AvansReport") -> Dict[str, Any]:
     now = time.time()
     if (
         not force
         and _cache["payload"] is not None
+        and _cache.get("key") == f"{asset_prefix}:"
         and now - float(_cache["timestamp"]) < CACHE_SECONDS
     ):
         return dict(_cache["payload"])
@@ -122,15 +133,15 @@ def check_for_updates(force: bool = False) -> Dict[str, Any]:
             result["error"] = "GitHub временно ограничил число запросов. Попробуйте позже."
         else:
             result["error"] = f"GitHub вернул ошибку {exc.code}."
-        _cache.update(timestamp=now, payload=result)
+        _cache.update(timestamp=now, payload=result, key=f"{asset_prefix}:")
         return dict(result)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         result["error"] = f"Нет связи с GitHub: {exc}"
-        _cache.update(timestamp=now, payload=result)
+        _cache.update(timestamp=now, payload=result, key=f"{asset_prefix}:")
         return dict(result)
 
     latest = (payload.get("tag_name") or payload.get("name") or "").strip()
-    assets = _pick_assets(payload.get("assets") or [])
+    assets = _pick_assets(payload.get("assets") or [], asset_prefix)
     result.update(
         {
             "latest_version": latest.lstrip("v"),
@@ -150,7 +161,7 @@ def check_for_updates(force: bool = False) -> Dict[str, Any]:
     elif assets.get("windows_installer"):
         result["download_url"] = assets["windows_installer"]["url"]
 
-    _cache.update(timestamp=now, payload=result)
+    _cache.update(timestamp=now, payload=result, key=f"{asset_prefix}:")
     return dict(result)
 
 
@@ -194,8 +205,8 @@ def download_update(info: Dict[str, Any]) -> Path:
     return _download(url, target)
 
 
-def install_update(info: Dict[str, Any]) -> Dict[str, Any]:
-    """Скачивает установщик, делает резервную копию базы и запускает установку."""
+def install_update(info: Dict[str, Any], make_backup: bool = True) -> Dict[str, Any]:
+    """Скачивает установщик, (при необходимости) делает копию базы и запускает установку."""
     if not supports_self_update():
         raise UpdateError(
             "Автоматическая установка доступна только в Windows-сборке программы. "
@@ -204,8 +215,8 @@ def install_update(info: Dict[str, Any]) -> Dict[str, Any]:
     if not info.get("update_available"):
         raise UpdateError("Установленная версия уже актуальна.")
 
-    # Самое важное: сохраняем базу до обновления.
-    backup = db.backup_database(reason="before-update")
+    # Самое важное: сохраняем данные до обновления (в автономном режиме БД нет).
+    backup = db.backup_database(reason="before-update") if make_backup else None
     installer = download_update(info)
     if installer.suffix.lower() != ".exe":
         raise UpdateError("Файл обновления не является установщиком Windows.")
@@ -225,7 +236,7 @@ def install_update(info: Dict[str, Any]) -> Dict[str, Any]:
         raise UpdateError(f"Не удалось запустить установщик: {exc}") from exc
     return {
         "ok": True,
-        "backup": str(backup),
+        "backup": str(backup) if backup else None,
         "installer": str(installer),
         "message": "Установщик запущен. Программа перезапустится автоматически.",
     }

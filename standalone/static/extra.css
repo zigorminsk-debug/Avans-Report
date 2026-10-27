@@ -1,0 +1,98 @@
+/* ============================================================
+   Автономный режим — дополнения к общему оформлению
+   ============================================================ */
+
+:root {
+  --accent: #146b64;
+  --accent-dark: #0e524d;
+  --accent-soft: #e6f2f0;
+  --sidebar: #0d2b2a;
+  --sidebar-2: #123a37;
+  --ok: #1c7a4d;
+}
+
+.auth-wrap { display: none; }
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #e6f2f0;
+  color: #0e524d;
+  border: 1px solid #bcd7dc;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.mode-badge.offline { background: #fdf3e2; border-color: #f0dcb6; color: #8a5a00; }
+
+.storage-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.storage-bar b { color: var(--text); font-weight: 600; }
+.storage-bar .path {
+  font-family: Consolas, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  background: #f2f6f8;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 7px;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-card .card-head h2 { display: flex; align-items: center; gap: 8px; }
+
+.report-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.result-box {
+  border: 1px solid #bfe3cf;
+  background: var(--ok-soft);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.result-box h3 { margin: 0 0 6px; font-size: 16px; color: #135c3a; }
+.result-box .files {
+  display: grid;
+  gap: 4px;
+  font-family: Consolas, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: #2b4a3c;
+  word-break: break-all;
+  margin: 8px 0 12px;
+}
+
+.setup-hint {
+  border: 1px dashed #c3d0db;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fbfdfe;
+  font-size: 13.5px;
+  color: #48606f;
+}
+
+.quick-tips { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+.quick-tips b { color: var(--text); }
+
+.kbd {
+  display: inline-block;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 0 5px;
+  font-size: 11.5px;
+  background: #fff;
+  font-family: Consolas, monospace;
+}
+
+@media print {
+  .doc { padding: 0 !important; }
+}

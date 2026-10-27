@@ -18,6 +18,7 @@ hiddenimports = collect_submodules("uvicorn") + [
     "app.main",
     "app.updates",
     "app.excel_export",
+    "app.pdf_export",
     "email.mime.multipart",
     "email.mime.base",
 ]

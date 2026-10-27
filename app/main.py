@@ -493,6 +493,28 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.get("/api/reports/{report_id}/pdf")
+    def download_pdf(report_id: int, user: sqlite3.Row = Depends(current_user)):
+        from .pdf_export import build_report_pdf, report_pdf_filename
+
+        with db.session() as conn:
+            row = reports.get_report(conn, report_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Отчёт не найден")
+        if not reports.can_view(user, row):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому отчёту")
+        report = reports.serialize(row)
+        content = build_report_pdf(report)
+        quoted = urllib.parse.quote(report_pdf_filename(report))
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"report-{report_id}.pdf\"; "
+                                       f"filename*=UTF-8''{quoted}"
+            },
+        )
+
     @app.post("/api/reports/{report_id}/email")
     def email_report(report_id: int, payload: EmailIn,
                      user: sqlite3.Row = Depends(current_user)) -> Dict[str, Any]:
