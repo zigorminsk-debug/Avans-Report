@@ -509,7 +509,21 @@ table.data td.actions .btn { margin-left: 4px; }
 @page { size: A4 portrait; margin: 8mm; }
 
 @media print {
-  body { background: #fff !important; font-size: 10pt; }
+  @page { size: A4 portrait; margin: 6mm; }
+  body { background: #fff !important; font-size: 9.5pt; }
+  /* Бланк должен укладываться на один лист даже при печати из меню браузера */
+  .doc { font-size: 9.1pt; line-height: 1.17; }
+  .doc-org { font-size: 12pt; }
+  .doc-title { font-size: 13.5pt; margin: 3mm 0 1.5mm; }
+  .doc-approve { font-size: 8.6pt; }
+  .doc-fields { margin: 0 0 2.5mm; }
+  .doc-field { margin-bottom: 1.6mm; }
+  .doc-table th, .doc-table td { padding: .5mm 1.1mm; font-size: 8.5pt; }
+  .doc-table td.tall { height: 5.6mm; }
+  .doc-amounts, .doc-expenses { margin-bottom: 2.6mm; }
+  .doc-signs { margin-top: 3mm; }
+  .doc-signs .checked { margin: 2mm 0 3mm; }
+  .doc-foot { margin-top: 2.5mm; }
   .sidebar, .topbar, .doc-editor-bar, .toast-root, .modal-root, .no-print { display: none !important; }
   .content { padding: 0 !important; max-width: none; }
   .card { box-shadow: none; border: none; padding: 0; margin: 0; }

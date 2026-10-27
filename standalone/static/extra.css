@@ -230,6 +230,12 @@ h1, h2, h3, h4 { font-family: Arial, "Arial Unicode MS", Helvetica, sans-serif; 
 }
 .btn-danger:hover { background: #fdeaea; border-color: #ca1616; color: #8f0f0f; }
 .btn-sm { padding: 6px 11px; font-size: 12px; }
+.btn-print {
+  background: linear-gradient(180deg, #ffffff 0%, #f3f3f5 100%);
+  border-color: #cfcfd2;
+  color: #282829;
+}
+.btn-print:hover { border-color: #ca1616; color: #a30f0f; }
 .btn-link { border: none; background: none; color: #f5424b; padding: 0; font-weight: bold; }
 .btn-link:hover { background: none; color: #ed123a; text-decoration: underline; }
 

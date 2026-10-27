@@ -337,7 +337,7 @@ def test_standalone_has_user_guide():
     assert "renderHelp" in js
     assert "Инструкция по работе с программой" in js
     assert "printHelp" in js
-    for step in ("Как заполнить отчёт", "Сохранение в PDF и печать",
+    for step in ("Как заполнить отчёт", "Печать и PDF",
                  "Несколько окон одновременно", "Где лежат сохранённые отчёты",
                  "Если что-то не работает"):
         assert step in js, step
@@ -355,3 +355,25 @@ def test_standalone_ui_uses_company_site_style():
     assert "#ca1616" in css        # красный акцент sm-group.by
     assert "tahoma" in css         # шрифт сайта
     assert "site-head" in css and "site-foot" in css
+
+
+def test_ui_posts_when_request_has_body():
+    """GET с телом браузер отклоняет — печать и предпросмотр из-за этого падали."""
+    js = (ROOT / "standalone" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "opts.method || (body !== undefined && body !== null ? 'POST' : 'GET')" in js
+    assert js.count("api('/api/prepare'") == js.count("api('/api/prepare', { method: 'POST'")
+    for call in js.split("api('/api/prepare'")[1:]:
+        assert call.lstrip().startswith(", { method: 'POST'"), call[:80]
+
+
+def test_ui_can_print_without_saving():
+    """Печать бланка доступна без сохранения отчёта и подгоняется под лист A4."""
+    js = (ROOT / "standalone" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "Печать без сохранения" in js
+    assert "async function printDraft" in js
+    assert "draftAsIs" in js
+    assert "@page{size:A4" in js
+    assert "sheet.style.zoom" in js          # подгонка под одну страницу
+    assert "event.key.toLowerCase() === 'p'" in js  # Ctrl+P печатает бланк

@@ -95,34 +95,42 @@ def _register_fonts() -> None:
     _FONTS_READY = True
 
 
-def _styles() -> Dict[str, ParagraphStyle]:
+def _styles(scale: float = 1.0) -> Dict[str, ParagraphStyle]:
+    """Стили бланка. scale < 1 уменьшает шрифты, чтобы отчёт влез на один лист."""
     _register_fonts()
+    scale = max(0.7, min(1.0, float(scale)))
+
+    def size(value: float) -> float:
+        return round(value * scale, 2)
+
     base = ParagraphStyle(
-        "base", fontName=FONT_REGULAR, fontSize=8.6, leading=10.4,
+        "base", fontName=FONT_REGULAR, fontSize=size(8.6), leading=size(10.4),
         textColor=colors.black, alignment=TA_LEFT, spaceAfter=0, spaceBefore=0,
     )
     return {
         "base": base,
-        "small": ParagraphStyle("small", parent=base, fontSize=7, leading=8.4),
-        "tiny": ParagraphStyle("tiny", parent=base, fontSize=6.6, leading=7.8,
+        "small": ParagraphStyle("small", parent=base, fontSize=size(7), leading=size(8.4)),
+        "tiny": ParagraphStyle("tiny", parent=base, fontSize=size(6.6), leading=size(7.8),
                                textColor=colors.HexColor("#444444")),
-        "org": ParagraphStyle("org", parent=base, fontName=FONT_BOLD, fontSize=12.5, leading=15),
-        "approve": ParagraphStyle("approve", parent=base, fontSize=10.5, leading=13),
-        "title": ParagraphStyle("title", parent=base, fontName=FONT_BOLD, fontSize=15, leading=18,
-                                alignment=TA_CENTER, spaceBefore=6, spaceAfter=2),
-        "label": ParagraphStyle("label", parent=base, fontSize=9.5, leading=12),
-        "value": ParagraphStyle("value", parent=base, fontSize=10.5, leading=13),
-        "hint": ParagraphStyle("hint", parent=base, fontSize=6.4, leading=8,
+        "org": ParagraphStyle("org", parent=base, fontName=FONT_BOLD, fontSize=size(12.5),
+                              leading=size(15)),
+        "approve": ParagraphStyle("approve", parent=base, fontSize=size(10.5), leading=size(13)),
+        "title": ParagraphStyle("title", parent=base, fontName=FONT_BOLD, fontSize=size(15),
+                                leading=size(18), alignment=TA_CENTER, spaceBefore=6,
+                                spaceAfter=2),
+        "label": ParagraphStyle("label", parent=base, fontSize=size(9.5), leading=size(12)),
+        "value": ParagraphStyle("value", parent=base, fontSize=size(10.5), leading=size(13)),
+        "hint": ParagraphStyle("hint", parent=base, fontSize=size(6.4), leading=size(8),
                                alignment=TA_CENTER),
-        "cell": ParagraphStyle("cell", parent=base, fontSize=8.4, leading=10),
-        "cell_center": ParagraphStyle("cell_center", parent=base, fontSize=8.4, leading=10,
-                                      alignment=TA_CENTER),
-        "cell_right": ParagraphStyle("cell_right", parent=base, fontSize=8.4, leading=10,
-                                     alignment=TA_RIGHT),
-        "th": ParagraphStyle("th", parent=base, fontName=FONT_BOLD, fontSize=8.2, leading=9.6,
-                             alignment=TA_CENTER),
-        "date_line": ParagraphStyle("date_line", parent=base, fontSize=10.5, leading=13,
-                                    alignment=TA_RIGHT),
+        "cell": ParagraphStyle("cell", parent=base, fontSize=size(8.4), leading=size(10)),
+        "cell_center": ParagraphStyle("cell_center", parent=base, fontSize=size(8.4),
+                                      leading=size(10), alignment=TA_CENTER),
+        "cell_right": ParagraphStyle("cell_right", parent=base, fontSize=size(8.4),
+                                     leading=size(10), alignment=TA_RIGHT),
+        "th": ParagraphStyle("th", parent=base, fontName=FONT_BOLD, fontSize=size(8.2),
+                             leading=size(9.6), alignment=TA_CENTER),
+        "date_line": ParagraphStyle("date_line", parent=base, fontSize=size(10.5),
+                                    leading=size(13), alignment=TA_RIGHT),
     }
 
 
@@ -303,7 +311,12 @@ def _amounts_table(styles: Dict[str, ParagraphStyle], report: Dict[str, Any],
 
 
 def _expenses_table(styles: Dict[str, ParagraphStyle], report: Dict[str, Any],
-                    width: float) -> Table:
+                    width: float, row_height: Optional[float] = None) -> Table:
+    """Таблица расходов.
+
+    row_height=None — высота строк по содержимому (длинный текст переносится,
+    а не наезжает на соседнюю строку). Число — одинаковая высота строк.
+    """
     totals = report.get("totals") or {}
     expenses: List[dict] = list(report.get("expenses") or [])
 
@@ -352,7 +365,9 @@ def _expenses_table(styles: Dict[str, ParagraphStyle], report: Dict[str, Any],
     ]
 
     rows = header + body + [total_row]
-    table = Table(rows, colWidths=widths, rowHeights=[None, None] + [19] * MAX_EXPENSES + [None])
+    heights = ([None, None] + [row_height] * MAX_EXPENSES + [None] if row_height
+               else [None] * len(rows))
+    table = Table(rows, colWidths=widths, rowHeights=heights)
     style = [
         ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
         ("SPAN", (0, 0), (2, 0)),
@@ -370,9 +385,12 @@ def _expenses_table(styles: Dict[str, ParagraphStyle], report: Dict[str, Any],
     return table
 
 
-def build_report_pdf(report: Dict[str, Any]) -> bytes:
-    """Собирает бланк отчёта в PDF (одна страница A4)."""
-    styles = _styles()
+def _render_report(report: Dict[str, Any], scale: float = 1.0) -> "tuple[bytes, int]":
+    """Одна попытка вёрстки: PDF и число страниц при заданном масштабе."""
+    styles = _styles(scale)
+
+    def gap(value: float) -> Spacer:
+        return Spacer(1, round(value * max(0.75, scale), 2))
     buffer = io.BytesIO()
     left_margin = 12 * mm
     right_margin = 12 * mm
@@ -474,24 +492,24 @@ def build_report_pdf(report: Dict[str, Any]) -> bytes:
 
     story = [
         header,
-        Spacer(1, 6),
+        gap(6),
         _paragraph("Отчет об израсходованных суммах", styles["title"]),
         number_and_date,
-        Spacer(1, 5),
+        gap(5),
         _field_row(styles, "Подотчетное лицо", report.get("person_name", ""), width,
                    "(фамилия, инициалы)"),
-        Spacer(1, 4),
+        gap(4),
         _field_row(styles, "Должность служащего (профессия рабочего)",
                    report.get("person_position", ""), width),
-        Spacer(1, 4),
+        gap(4),
         _field_row(styles, "Назначение аванса", report.get("purpose", ""), width),
-        Spacer(1, 7),
+        gap(7),
         _amounts_table(styles, report, width),
-        Spacer(1, 7),
+        gap(7),
         _expenses_table(styles, report, width),
-        Spacer(1, 10),
+        gap(10),
         *signature_rows,
-        Spacer(1, 10),
+        gap(10),
         _paragraph(
             f"Отчёт № {report.get('number', '')} · сформирован {created_text}",
             styles["tiny"],
@@ -499,7 +517,27 @@ def build_report_pdf(report: Dict[str, Any]) -> bytes:
     ]
 
     doc.build(story)
-    return buffer.getvalue()
+    return buffer.getvalue(), int(getattr(doc, "page", 1))
+
+
+# Масштабы, которые пробуем, чтобы уместить бланк на одном листе.
+FIT_SCALES = (1.0, 0.98, 0.96, 0.94, 0.92, 0.90, 0.88, 0.86, 0.84, 0.82)
+
+
+def build_report_pdf(report: Dict[str, Any]) -> bytes:
+    """Бланк отчёта в PDF — всегда одна страница A4.
+
+    Если содержимое не помещается (длинные ФИО, назначение, много строк
+    расходов), шрифты и отступы постепенно уменьшаются, пока отчёт
+    не уложится на один лист.
+    """
+    best: Optional[bytes] = None
+    for scale in FIT_SCALES:
+        content, pages = _render_report(report, scale)
+        best = content
+        if pages <= 1:
+            return content
+    return best or b""
 
 
 def report_pdf_filename(report: Dict[str, Any]) -> str:

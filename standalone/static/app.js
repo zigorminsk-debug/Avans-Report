@@ -210,9 +210,12 @@
       headers['Content-Type'] = 'application/json';
       body = JSON.stringify(body);
     }
+    // Если есть тело, а метод не указан, это POST: браузер не пропускает
+    // GET-запрос с телом («Request with GET/HEAD method cannot have body»).
+    const method = opts.method || (body !== undefined && body !== null ? 'POST' : 'GET');
     let response;
     try {
-      response = await fetch(path, { method: opts.method || 'GET', headers, body, cache: 'no-store' });
+      response = await fetch(path, { method, headers, body, cache: 'no-store' });
     } catch (err) {
       throw new ApiError('Нет связи с программой. Возможно, она закрыта — запустите её снова.', 0);
     }
@@ -439,7 +442,7 @@
     async save(payload) {
       const year = Number(String(payload.report_date).slice(0, 4));
       const number = await this.nextNumber(year);
-      const prepared = await api('/api/prepare', { body: { payload, number } });
+      const prepared = await api('/api/prepare', { method: 'POST', body: { payload, number } });
       const blob = await apiBlob('/api/pdf', prepared.report);
       await this._write(`${number}.json`, JSON.stringify(prepared.report, null, 2));
       await this._write(`${number}.pdf`, blob);
@@ -795,21 +798,66 @@
       </div>`;
   }
 
-  function printReport(report) {
-    const html = '<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">' +
+  // Компактные стили печатного листа: бланк должен укладываться в одну A4
+  const PRINT_CSS =
+    '@page{size:A4 portrait;margin:6mm;}' +
+    'html,body{background:#fff;margin:0;padding:0;}' +
+    'body{font-family:"Times New Roman","Liberation Serif",Times,serif;}' +
+    '.print-toolbar{position:sticky;top:0;z-index:5;display:flex;gap:10px;justify-content:flex-end;' +
+    'padding:8px 12px;background:#f4f4f5;border-bottom:1px solid #d7d7da;font-family:Tahoma,Arial,sans-serif;}' +
+    '.print-hint{font-family:Tahoma,Arial,sans-serif;font-size:11.5px;color:#606062;' +
+    'padding:6px 12px 0;}' +
+    '.print-wrap{padding:6px 0 12px;}' +
+    '#sheet{transform-origin:top left;}' +
+    '.doc{width:auto;min-height:0;margin:0 auto;padding:0;box-shadow:none;border-radius:0;' +
+    'font-size:9.1pt;line-height:1.17;}' +
+    '.doc-org{font-size:12pt;}' +
+    '.doc-approve{font-size:8.6pt;} .doc-approve .approve-title{font-size:11pt;margin-bottom:1.2mm;}' +
+    '.doc-approve .approve-sum{margin-bottom:2mm;}' +
+    '.doc-title{font-size:13.5pt;margin:3mm 0 1.5mm;}' +
+    '.doc-datebar{font-size:10pt;margin-bottom:2.5mm;}' +
+    '.doc-fields{margin:0 0 2.5mm;} .doc-field{margin-bottom:1.6mm;}' +
+    '.doc-field .lbl,.doc-signs .row .lbl,.doc-signs .row .name{font-size:9.4pt;}' +
+    '.doc-table th,.doc-table td{padding:.5mm 1.1mm;font-size:8.5pt;}' +
+    '.doc-table th{font-size:8.3pt;}' +
+    '.doc-table td.tall{height:5.6mm;}' +
+    '.doc-amounts{margin-bottom:2.6mm;} .doc-expenses{margin-bottom:2.6mm;}' +
+    '.doc-signs{margin-top:3mm;} .doc-signs .hints{font-size:7pt;margin-bottom:2mm;}' +
+    '.doc-signs .checked{font-size:9.4pt;margin:2mm 0 3mm;}' +
+    '.doc-foot{margin-top:2.5mm;font-size:7pt;}' +
+    '@media print{.print-toolbar,.print-hint{display:none !important;} .print-wrap{padding:0;}' +
+    '.doc-table th{background:#f0f0f0 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}';
+
+  // Подгоняет лист под высоту страницы A4 (поля 6 мм), чтобы бланк
+  // всегда печатался на одном листе.
+  const FIT_SCRIPT =
+    '(function(){var sheet=document.getElementById("sheet");if(!sheet)return;' +
+    'var mm=96/25.4;var pageH=(297-12)*mm;var pageW=(210-12)*mm;' +
+    'sheet.style.zoom=1;' +
+    'var h=sheet.getBoundingClientRect().height;var w=sheet.getBoundingClientRect().width;' +
+    'var k=Math.min(h>pageH?pageH/h:1,w>pageW?pageW/w:1);' +
+    'if(k<0.999){sheet.style.zoom=(Math.floor(k*1000)/1000);}' +
+    'window.__fit=Math.round(k*1000)/1000;' +
+    'setTimeout(function(){window.focus();window.print();},260);' +
+    '})();';
+
+  function printSheetHtml(report) {
+    return '<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">' +
       '<title>' + esc('Авансовый отчёт ' + (report.number || '')) + '</title>' +
       '<link rel="stylesheet" href="/shared/styles.css">' +
-      '<style>@page{size:A4 portrait;margin:8mm;} body{background:#fff;margin:0;padding:0;}' +
-      '.print-toolbar{position:sticky;top:0;display:flex;gap:10px;justify-content:flex-end;' +
-      'padding:10px 14px;background:#f4f7fa;border-bottom:1px solid #dbe3ea;}' +
-      '.print-wrap{padding:10px 0 24px;} .doc{box-shadow:none;margin:0 auto;}' +
-      '@media print{.print-toolbar{display:none;} .print-wrap{padding:0;} .doc{padding:0;}}</style>' +
-      '</head><body><div class="print-toolbar">' +
+      '<style>' + PRINT_CSS + '</style></head><body>' +
+      '<div class="print-toolbar">' +
       '<button class="btn" onclick="window.close()">Закрыть</button>' +
       '<button class="btn btn-primary" onclick="window.print()">Печать</button></div>' +
-      '<div class="print-wrap">' + documentHtml(report) + '</div>' +
-      '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},420);});<\/script>' +
-      '</body></html>';
+      '<div class="print-hint">Бланк подготовлен для одного листа A4 — можно печатать ' +
+      'или сохранить в PDF средствами принтера.</div>' +
+      '<div class="print-wrap"><div id="sheet">' +
+      documentHtml(report) + '</div></div>' +
+      '<script>' + FIT_SCRIPT + '<\/script></body></html>';
+  }
+
+  function printReport(report) {
+    const html = printSheetHtml(report);
     const win = window.open('', '_blank');
     if (!win) {
       printViaIframe(report);
@@ -828,13 +876,23 @@
     doc.open();
     doc.write('<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">' +
       '<link rel="stylesheet" href="/shared/styles.css">' +
-      '<style>@page{size:A4 portrait;margin:8mm;}</style></head><body>' +
-      documentHtml(report) + '</body></html>');
+      '<style>' + PRINT_CSS + '</style></head><body>' +
+      '<div class="print-wrap"><div id="sheet">' +
+      documentHtml(report) + '</div></div></body></html>');
     doc.close();
     setTimeout(() => {
-      try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (err) { /* ignore */ }
+      try {
+        const sheet = doc.getElementById('sheet');
+        const pageH = (297 - 12) * 96 / 25.4;
+        if (sheet) {
+          const ratio = pageH / sheet.getBoundingClientRect().height;
+          if (ratio < 1) sheet.style.zoom = Math.floor(ratio * 1000) / 1000;
+        }
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+      } catch (err) { /* ignore */ }
       setTimeout(() => frame.remove(), 2000);
-    }, 320);
+    }, 420);
   }
 
   // -----------------------------------------------------------------------
@@ -889,10 +947,11 @@
         <div class="totals">
           К утверждению: <b data-total-label="approved">0,00</b> руб.
         </div>
-        <button class="btn" id="btn-print-draft" type="button" title="Печать бланка">
-          ${icon(ICON.print, 16)} Печать
+        <button class="btn btn-print" id="btn-print-draft" type="button"
+                title="Печать бланка без сохранения (Ctrl+P)">
+          ${icon(ICON.print, 16)} Печать без сохранения
         </button>
-        <button class="btn" id="btn-pdf-draft" type="button" title="Предпросмотр PDF">
+        <button class="btn" id="btn-pdf-draft" type="button" title="Посмотреть бланк в PDF">
           ${icon(ICON.file, 16)} Предпросмотр PDF
         </button>
         <button class="btn btn-primary" id="btn-save" type="button">
@@ -904,7 +963,8 @@
         <button class="btn btn-sm" id="btn-drop-draft" type="button">Начать заново</button></div>` : ''}
       <div class="doc-wrap"><div class="doc" id="editor-doc"></div></div>
       <div class="quick-tips no-print">
-        <div><b>Ctrl+S</b> — сохранить отчёт. Черновик хранится отдельно в каждой вкладке.</div>
+        <div><b>Ctrl+S</b> — сохранить отчёт, <b>Ctrl+P</b> — напечатать бланк без сохранения.
+          Черновик хранится отдельно в каждой вкладке.</div>
         <div>Как заполнять и печатать — в разделе
           <a href="#/help">«Инструкция»</a> (её можно распечатать).</div>
         <div>После сохранения отчёт получает номер и сразу записывается в PDF
@@ -912,10 +972,7 @@
       </div>`;
 
     $('#btn-save').addEventListener('click', saveReport);
-    $('#btn-print-draft').addEventListener('click', () => safe(async () => {
-      const prepared = await prepareDraft();
-      printReport(prepared.report);
-    }));
+    $('#btn-print-draft').addEventListener('click', () => safe(printDraft));
     $('#btn-pdf-draft').addEventListener('click', () => safe(async () => {
       const prepared = await prepareDraft();
       const blob = await apiBlob('/api/pdf', prepared.report);
@@ -1332,7 +1389,64 @@
 
   async function prepareDraft() {
     const payload = buildPayload();
-    return api('/api/prepare', { body: { payload } });
+    return api('/api/prepare', { method: 'POST', body: { payload } });
+  }
+
+  // Черновик «как есть»: пустые поля не мешают печати бланка.
+  // Подставляем прочерки и минимальную сумму, чтобы бланк собрался всегда.
+  function draftAsIs() {
+    const draft = state.draft || emptyDraft();
+    const today = new Date().toISOString().slice(0, 10);
+    const dash = (value) => (String(value || '').trim() || '—');
+    const positive = (value) => {
+      const cents = parseCents(value);
+      return Number.isFinite(cents) && cents > 0 ? String(value).replace(',', '.') : '0.01';
+    };
+    const expenses = (draft.expenses || []).filter((row) => {
+      const hasText = [row.date, row.document, row.document_number, row.purpose]
+        .some((value) => String(value || '').trim());
+      return hasText || String(row.amount || '').trim();
+    });
+    return {
+      report_date: draft.report_date || today,
+      person_name: dash(draft.person_name),
+      person_position: (draft.person_position || '').trim(),
+      purpose: dash(draft.purpose),
+      advances: (draft.advances || [])
+        .filter((row) => String(row.amount || '').trim())
+        .map((row) => ({ date: row.date || today, amount: positive(row.amount) })),
+      expenses: (expenses.length ? expenses : [{ date: today, purpose: '—', amount: '' }])
+        .map((row) => {
+          const date = String(row.date || '').trim();
+          return {
+            date: /^\d{2}\.\d{2}\.\d{4}$/.test(date) ? date : today.split('-').reverse().join('.'),
+            document: (row.document || '').trim(),
+            document_number: (row.document_number || '').trim(),
+            purpose: dash(row.purpose),
+            amount: positive(row.amount),
+          };
+        }),
+    };
+  }
+
+  // Печать без сохранения: бланк открывается сразу, отчёт на диске не создаётся.
+  async function printDraft() {
+    let prepared = null;
+    try {
+      prepared = await prepareDraft();
+    } catch (err) {
+      const ok = await confirmDialog(
+        'Отчёт заполнен не полностью',
+        `${err.message}. Можно напечатать бланк с тем, что уже заполнено — сохранять отчёт не нужно.`,
+        'Печать как есть',
+      );
+      if (!ok) return;
+      prepared = await api('/api/prepare', { method: 'POST', body: { payload: draftAsIs() } });
+      prepared.number = prepared.number || '';
+      prepared.report.number = prepared.report.number || '';
+    }
+    printReport(prepared.report);
+    toast('Бланк открыт для печати — отчёт не сохранён', 'info', 4500);
   }
 
   async function saveReport() {
@@ -1399,10 +1513,14 @@
         <p class="help-note">Незаконченный отчёт сохраняется как черновик в этой вкладке:
           можно закрыть страницу и продолжить позже. Кнопка «Начать заново» очищает черновик.</p>
 
-        <h3>2. Сохранение в PDF и печать</h3>
+        <h3>2. Печать и PDF</h3>
         <ul class="help-list">
-          <li><b>Печать</b> — открывает бланк A4 в отдельном окне с диалогом печати.
-            В диалоге выбирайте масштаб «По размеру страницы» / 100 %.</li>
+          <li><b>Печать без сохранения</b> (или <b>Ctrl+P</b>) — бланк открывается в новом
+            окне и сразу предлагается печать. Отчёт при этом <b>не сохраняется</b>:
+            номер не занимается, файлы на диске не создаются. Если какие-то поля пусты,
+            программа предложит напечатать бланк «как есть».</li>
+          <li>Бланк всегда укладывается на <b>один лист A4</b>: если текста много,
+            программа сама немного уменьшает лист.</li>
           <li><b>Скачать PDF</b> — сохраняет готовый файл
             <code>АО-2026-0001.pdf</code> в любую папку
             (в диалоге печати также можно выбрать «Сохранить как PDF»).</li>
@@ -1737,9 +1855,17 @@
   }
 
   function editorHotkeys(event) {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const onEditor = location.hash === '' || location.hash === '#/new';
+    if (event.key.toLowerCase() === 's') {
       event.preventDefault();
-      if (location.hash === '' || location.hash === '#/new') saveReport();
+      if (onEditor) saveReport();
+      return;
+    }
+    // Ctrl+P — печать бланка без сохранения, а не печать страницы интерфейса
+    if (event.key.toLowerCase() === 'p' && onEditor) {
+      event.preventDefault();
+      safe(printDraft);
     }
   }
 

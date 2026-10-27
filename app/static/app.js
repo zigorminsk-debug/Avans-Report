@@ -1163,23 +1163,55 @@
     });
   }
 
+  // Компактная печать: бланк укладывается на один лист A4
+  const PRINT_CSS =
+    '@page{size:A4 portrait;margin:6mm;}' +
+    'html,body{background:#fff;margin:0;padding:0;}' +
+    '.print-toolbar{position:sticky;top:0;z-index:5;display:flex;gap:10px;justify-content:flex-end;' +
+    'padding:8px 12px;background:#f4f4f5;border-bottom:1px solid #d7d7da;font-family:Tahoma,Arial,sans-serif;}' +
+    '.print-wrap{padding:6px 0 12px;}' +
+    '#sheet{transform-origin:top left;}' +
+    '.doc{width:auto;min-height:0;margin:0 auto;padding:0;box-shadow:none;border-radius:0;' +
+    'font-size:9.1pt;line-height:1.17;}' +
+    '.doc-org{font-size:12pt;}' +
+    '.doc-approve{font-size:8.6pt;} .doc-approve .approve-title{font-size:11pt;margin-bottom:1.2mm;}' +
+    '.doc-approve .approve-sum{margin-bottom:2mm;}' +
+    '.doc-title{font-size:13.5pt;margin:3mm 0 1.5mm;}' +
+    '.doc-datebar{font-size:10pt;margin-bottom:2.5mm;}' +
+    '.doc-fields{margin:0 0 2.5mm;} .doc-field{margin-bottom:1.6mm;}' +
+    '.doc-field .lbl,.doc-signs .row .lbl,.doc-signs .row .name{font-size:9.4pt;}' +
+    '.doc-table th,.doc-table td{padding:.5mm 1.1mm;font-size:8.5pt;}' +
+    '.doc-table th{font-size:8.3pt;}' +
+    '.doc-table td.tall{height:5.6mm;}' +
+    '.doc-amounts{margin-bottom:2.6mm;} .doc-expenses{margin-bottom:2.6mm;}' +
+    '.doc-signs{margin-top:3mm;} .doc-signs .hints{font-size:7pt;margin-bottom:2mm;}' +
+    '.doc-signs .checked{font-size:9.4pt;margin:2mm 0 3mm;}' +
+    '.doc-foot{margin-top:2.5mm;font-size:7pt;}' +
+    '@media print{.print-toolbar{display:none !important;} .print-wrap{padding:0;}' +
+    '.doc-table th{background:#f0f0f0 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}';
+
+  const FIT_SCRIPT =
+    '(function(){var sheet=document.getElementById("sheet");if(!sheet)return;' +
+    'var mm=96/25.4;var pageH=(297-12)*mm;var pageW=(210-12)*mm;' +
+    'sheet.style.zoom=1;' +
+    'var h=sheet.getBoundingClientRect().height;var w=sheet.getBoundingClientRect().width;' +
+    'var k=Math.min(h>pageH?pageH/h:1,w>pageW?pageW/w:1);' +
+    'if(k<0.999){sheet.style.zoom=(Math.floor(k*1000)/1000);}' +
+    'setTimeout(function(){window.focus();window.print();},260);' +
+    '})();';
+
   function printReport(report) {
     const styles = '<link rel="stylesheet" href="/static/styles.css">';
     const title = 'Авансовый отчёт № ' + report.number;
     const markup = documentHtml(report);
     const html = '<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">' +
       '<title>' + esc(title) + '</title>' + styles +
-      '<style>@page{size:A4 portrait;margin:8mm;} body{background:#fff;padding:0;margin:0;}' +
-      '.print-toolbar{position:sticky;top:0;display:flex;gap:10px;justify-content:flex-end;' +
-      'padding:10px 14px;background:#f4f7fa;border-bottom:1px solid #dbe3ea;}' +
-      '.print-wrap{padding:10px 0 24px;} .doc{box-shadow:none;margin:0 auto;}' +
-      '@media print{.print-toolbar{display:none;} .print-wrap{padding:0;} .doc{padding:0;}}</style>' +
-      '</head><body><div class="print-toolbar no-print">' +
+      '<style>' + PRINT_CSS + '</style></head><body>' +
+      '<div class="print-toolbar no-print">' +
       '<button class="btn" onclick="window.close()">Закрыть</button>' +
       '<button class="btn btn-primary" onclick="window.print()">Печать</button>' +
-      '</div><div class="print-wrap">' + markup + '</div>' +
-      '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},420);});<\/script>' +
-      '</body></html>';
+      '</div><div class="print-wrap"><div id="sheet">' + markup + '</div></div>' +
+      '<script>' + FIT_SCRIPT + '<\/script></body></html>';
 
     const win = window.open('', '_blank');
     if (!win) {
@@ -1204,10 +1236,20 @@
     doc.open();
     doc.write('<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">' +
       '<link rel="stylesheet" href="/static/styles.css">' +
-      '<style>@page{size:A4 portrait;margin:8mm;}</style></head><body>' + markup + '</body></html>');
+      '<style>' + PRINT_CSS + '</style></head><body>' +
+      '<div class="print-wrap"><div id="sheet">' + markup + '</div></div></body></html>');
     doc.close();
     setTimeout(() => {
-      try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (err) { /* ignore */ }
+      try {
+        const sheet = doc.getElementById('sheet');
+        const pageH = (297 - 12) * 96 / 25.4;
+        if (sheet) {
+          const ratio = pageH / sheet.getBoundingClientRect().height;
+          if (ratio < 1) sheet.style.zoom = Math.floor(ratio * 1000) / 1000;
+        }
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+      } catch (err) { /* ignore */ }
       setTimeout(() => frame.remove(), 2000);
     }, 300);
   }

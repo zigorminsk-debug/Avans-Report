@@ -107,3 +107,56 @@ def test_password_policy():
     with pytest.raises(PasswordPolicyError):
         validate_username("пользователь")
     assert validate_username("Ivanov.1") == "ivanov.1"
+
+
+def _printed_report(**over):
+    from app import pdf_export
+    from app.reports import ReportIn
+    from standalone import config, storage
+
+    data = {
+        "report_date": "2026-10-26",
+        "person_name": "Кухаренко Юлия Владимировна",
+        "person_position": "администратор отдела розничной сети и развития региональных продаж",
+        "purpose": "Командировочные расходы на поездку в г. Гомель для переговоров с клиентом",
+        "advances": [{"date": "2026-10-19", "amount": "1000.00"}],
+        "expenses": [{"date": "22.10.2026", "document": "Чек", "document_number": "1",
+                      "purpose": "проезд", "amount": "100.00"}],
+    }
+    data.update(over)
+    report = storage.build_report(ReportIn(**data), dict(config.DEFAULT_SETTINGS), "АО-2026-0001")
+    return pdf_export.build_report_pdf(storage.stamp(report))
+
+
+def _pdf_pages(content: bytes) -> int:
+    """Число страниц PDF без внешних зависимостей."""
+    import re
+
+    counts = [int(m.group(1)) for m in re.finditer(rb"/Type\s*/Pages[^>]*?/Count\s+(\d+)", content)]
+    if counts:
+        return max(counts)
+    return len(re.findall(rb"/Type\s*/Page[^s]", content))
+
+
+def test_pdf_is_single_page_even_when_full():
+    """Максимум строк, длинные ФИО и назначение — всё равно один лист."""
+    content = _printed_report(
+        advances=[{"date": f"2026-10-1{i}", "amount": "1000.00"} for i in range(1, 4)],
+        expenses=[{"date": f"{10 + i}.10.2026",
+                   "document": "Платежный документ, подтверждающий оплату",
+                   "document_number": f"ЖЕ211018579{i}",
+                   "purpose": "Проезд и проживание, дополнительные расходы в пути",
+                   "amount": "1123,45"} for i in range(10)],
+    )
+    assert content.startswith(b"%PDF")
+    assert _pdf_pages(content) == 1
+
+
+def test_pdf_fits_one_page_for_long_header_text():
+    content = _printed_report(
+        org_name='ООО "Сэйлз Модерн групп" · официальный дистрибьютор моющих средств',
+        person_name="Константинопольский Александр Владимирович",
+        purpose="Командировочные расходы на поездку в г. Гомель для проведения переговоров "
+                "с ключевым клиентом и подписания договора поставки на 2027 год",
+    )
+    assert _pdf_pages(content) == 1
