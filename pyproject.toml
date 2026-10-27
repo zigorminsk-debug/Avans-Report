@@ -1,6 +1,6 @@
 [project]
 name = "avans-report"
-version = "1.0.11"
+version = "1.0.12"
 description = "Авансовые отчёты: заполнение, PDF, печать и отправка по почте (серверная и автономная версии)"
 requires-python = ">=3.10"
 dependencies = [

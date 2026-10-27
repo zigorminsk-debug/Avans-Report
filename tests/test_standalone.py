@@ -512,3 +512,34 @@ def test_instance_problem_explains_reason():
     assert "версия" in launcher.instance_problem({**base, "version": "1.0.2"}, "/data")
     assert "каталог" in launcher.instance_problem(base, "/other")
     assert "интерфейс" in launcher.instance_problem({**base, "ui": False}, "/data")
+
+
+def test_printed_header_matches_excel_form():
+    """Шапка бланка как в форме Excel: подсказки строго под своими элементами."""
+    for path in ("standalone/static/app.js", "app/static/app.js"):
+        js = (ROOT / path).read_text(encoding="utf-8")
+        assert "doc-sign3" in js, path
+        # три колонки: должность, линия подписи, ФИО
+        for part in ('class="pos"', 'class="line"', 'class="name"'):
+            assert part in js, (path, part)
+        # подсказки под каждым элементом
+        for hint in ("h-pos", "h-line", "h-name"):
+            assert hint in js, (path, hint)
+        assert "(должность)" in js and "(подпись)" in js and "(фамилия, инициалы)" in js
+        # вторая дата — под линией подписи руководителя
+        assert "approve-date" in js, path
+        # дата под заголовком в формате формы: от " 26 " октября 2026
+        assert 'от " ' in js, path
+        assert "«" not in js.split("doc-datebar")[1][:400], path
+
+    css = (ROOT / "app" / "static" / "styles.css").read_text(encoding="utf-8")
+    assert "grid-template-columns: 26% 40% 34%" in css
+
+
+def test_pdf_header_has_two_dates_and_centered_hints():
+    from pathlib import Path as _Path
+
+    source = (_Path(ROOT) / "app" / "pdf_export.py").read_text(encoding="utf-8")
+    assert "approve_date" in source and "approve_year" in source
+    assert "(должность)" in source and "(подпись)" in source
+    assert 'f\'от " {report_date.day} " ' in source

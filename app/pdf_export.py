@@ -131,6 +131,10 @@ def _styles(scale: float = 1.0) -> Dict[str, ParagraphStyle]:
                              leading=size(9.6), alignment=TA_CENTER),
         "date_line": ParagraphStyle("date_line", parent=base, fontSize=size(10.5),
                                     leading=size(13), alignment=TA_CENTER),
+        "approve_date": ParagraphStyle("approve_date", parent=base, fontSize=size(9.8),
+                                       leading=size(12), alignment=TA_LEFT),
+        "approve_year": ParagraphStyle("approve_year", parent=base, fontSize=size(9.8),
+                                       leading=size(12), alignment=TA_RIGHT),
     }
 
 
@@ -202,19 +206,73 @@ def _signature_row(styles: Dict[str, ParagraphStyle], label: str, name: str,
     return row
 
 
+def _blank_line(width: float, height: float = 12) -> Table:
+    """Линия для подписи."""
+    cell = Table([[""]], colWidths=[width], rowHeights=[height])
+    cell.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, -1), 0.6, colors.black),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return cell
+
+
 def _approval_block(styles: Dict[str, ParagraphStyle], report: Dict[str, Any],
                     width: float) -> Table:
+    """Блок «УТВЕРЖДАЮ» — расположение как в форме Excel.
+
+    Директор | линия подписи | ФИО, под ними подсказки строго по центру
+    каждого элемента, ниже — дата отчёта (вторая дата бланка).
+    """
     words = report.get("amount_words") or ""
     director_position = report.get("director_position") or "Директор"
     director_name = report.get("director_name") or ""
+
+    report_date = _parse_date(report.get("report_date"))
+    if report_date:
+        day_month = f'" {report_date.day} " {MONTHS_GENITIVE[report_date.month - 1]}'
+        year = str(report_date.year)
+    else:
+        day_month = ""
+        year = ""
+
+    inner = width - 4
+    label_width = inner * 0.26
+    line_width = inner * 0.40
+    name_width = inner - label_width - line_width
+
+    sign = Table(
+        [
+            [_paragraph(director_position, styles["label"]),
+             _blank_line(line_width),
+             _paragraph(director_name, styles["label"])],
+            [_paragraph("(должность)", styles["hint"]),
+             _paragraph("(подпись)", styles["hint"]),
+             _paragraph("(фамилия, инициалы)", styles["hint"])],
+            ["", _paragraph(day_month, styles["approve_date"]),
+             _paragraph(year, styles["approve_year"])],
+        ],
+        colWidths=[label_width, line_width, name_width],
+    )
+    sign.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
+        ("VALIGN", (0, 1), (-1, 1), "TOP"),
+        ("VALIGN", (0, 2), (-1, 2), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 1), (-1, 1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+
     block = [
         [_paragraph("УТВЕРЖДАЮ", styles["approve"])],
         [_paragraph("Отчет в сумме:", styles["label"])],
         [_paragraph(words, styles["small"])],
-        [Spacer(1, 4)],
-        [_signature_row(styles, director_position, director_name, width - 4)],
-        [Spacer(1, 2)],
-        [_paragraph("(должность)", styles["hint"])],
+        [Spacer(1, 3)],
+        [sign],
     ]
     table = Table(block, colWidths=[width])
     table.setStyle(TableStyle([
@@ -222,8 +280,7 @@ def _approval_block(styles: Dict[str, ParagraphStyle], report: Dict[str, Any],
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ("ALIGN", (0, 0), (0, 5), "RIGHT"),
-        ("LINEBELOW", (0, 3), (0, 3), 0, colors.white),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
     ]))
     return table
 
@@ -430,8 +487,8 @@ def _render_report(report: Dict[str, Any], scale: float = 1.0) -> "tuple[bytes, 
     report_date = _parse_date(report.get("report_date"))
     if report_date:
         date_line = (
-            f"от «{report_date.day}» {MONTHS_GENITIVE[report_date.month - 1]} "
-            f"{report_date.year} г."
+            f'от " {report_date.day} " {MONTHS_GENITIVE[report_date.month - 1]} '
+            f"{report_date.year}"
         )
     else:
         date_line = ""

@@ -667,18 +667,22 @@
   // Документ (печать и предпросмотр)
   // -----------------------------------------------------------------------
   function approvalBlock(report) {
+    const d = parseIsoDate(report.report_date);
     return `
       <div class="doc-approve">
         <div class="approve-title">УТВЕРЖДАЮ</div>
         <div class="approve-sum">Отчет в сумме:
           <span class="approve-amount">${esc(report.amount_words || amountInWords((report.totals || {}).approved_cents))}</span>
         </div>
-        <div class="doc-sign-grid">
-          <div class="lbl">${esc(report.director_position || 'Директор')}</div>
+        <div class="doc-sign3">
+          <div class="pos">${esc(report.director_position || 'Директор')}</div>
           <div class="line"></div>
           <div class="name">${esc(report.director_name || '')}</div>
+          <div class="hint h-pos">(должность)</div>
+          <div class="hint h-line">(подпись)</div>
+          <div class="hint h-name">(фамилия, инициалы)</div>
+          <div class="approve-date"><span class="dm">${d ? `" ${d.day} " ${MONTHS[d.month - 1]}` : ''}</span><span class="y">${d ? d.year : ''}</span></div>
         </div>
-        <div class="doc-hints"><span>(должность)</span><span>(подпись, фамилия, инициалы)</span></div>
       </div>`;
   }
 
@@ -774,8 +778,7 @@
         </div>
         <div class="doc-title">Отчет об израсходованных суммах</div>
         <div class="doc-datebar">
-          <span class="doc-date">от <span class="q">«</span>${d ? d.day : ''}<span class="q">»</span>
-            ${d ? MONTHS[d.month - 1] : ''} ${d ? d.year : ''} г.</span>
+          <span class="doc-date">от " ${d ? d.day : ''} " ${d ? MONTHS[d.month - 1] : ''} ${d ? d.year : ''}</span>
         </div>
         <div class="doc-fields">
           <div class="doc-field">
@@ -817,6 +820,8 @@
     '.doc-approve .approve-sum{margin-bottom:2mm;}' +
     '.doc-title{font-size:13.5pt;margin:3mm 0 1.5mm;}' +
     '.doc-datebar{font-size:10pt;margin-bottom:2.5mm;}' +
+    '.doc-sign3 .pos,.doc-sign3 .name,.doc-sign3 .approve-date{font-size:9.4pt;}' +
+    '.doc-sign3 .hint{font-size:6.9pt;}' +
     '.doc-fields{margin:0 0 2.5mm;} .doc-field{margin-bottom:1.6mm;}' +
     '.doc-field .lbl,.doc-signs .row .lbl,.doc-signs .row .name{font-size:9.4pt;}' +
     '.doc-table th,.doc-table td{padding:.5mm 1.1mm;font-size:8.5pt;}' +
@@ -1105,18 +1110,21 @@
         <div class="doc-approve">
           <div class="approve-title">УТВЕРЖДАЮ</div>
           <div class="approve-sum">Отчет в сумме:<span class="approve-amount" data-words></span></div>
-          <div class="doc-sign-grid">
-            <div class="lbl">${esc((state.settings && state.settings.director_position) || 'Директор')}</div>
+          <div class="doc-sign3">
+            <div class="pos">${esc((state.settings && state.settings.director_position) || 'Директор')}</div>
             <div class="line"></div>
             <div class="name">${esc((state.settings && state.settings.director_name) || '')}</div>
+            <div class="hint h-pos">(должность)</div>
+            <div class="hint h-line">(подпись)</div>
+            <div class="hint h-name">(фамилия, инициалы)</div>
+            <div class="approve-date"><span class="dm" data-approve-date></span><span class="y" data-approve-year></span></div>
           </div>
-          <div class="doc-hints"><span>(должность)</span><span>(подпись, фамилия, инициалы)</span></div>
         </div>
       </div>
       <div class="doc-title">Отчет об израсходованных суммах</div>
       <div class="doc-datebar">
-        <span class="doc-date">от <span class="q">«</span><span data-date-day></span><span class="q">»</span>
-          <span data-date-month></span> <span data-date-year></span> г.</span>
+        <span class="doc-date">от " <span data-date-day></span> " <span data-date-month></span>
+          <span data-date-year></span></span>
       </div>
       <div class="doc-fields">
         <div class="doc-field">
@@ -1297,6 +1305,10 @@
     const day = $('[data-date-day]');
     const month = $('[data-date-month]');
     const year = $('[data-date-year]');
+    const approveDate = $('[data-approve-date]');
+    const approveYear = $('[data-approve-year]');
+    if (approveDate) approveDate.textContent = d ? `" ${d.day} " ${MONTHS[d.month - 1]}` : '';
+    if (approveYear) approveYear.textContent = d ? String(d.year) : '';
     if (day) day.textContent = d ? d.day : '—';
     if (month) month.textContent = d ? MONTHS[d.month - 1] : '';
     if (year) year.textContent = d ? d.year : '';
